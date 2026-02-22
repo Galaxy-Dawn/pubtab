@@ -13,7 +13,7 @@ _LATEX_SPECIAL = {
     "{": r"\{",
     "}": r"\}",
     "~": r"\textasciitilde{}",
-    "^": r"\textasciicircle{}",
+    "^": r"\textasciicircum{}",
     "\\": r"\textbackslash{}",
 }
 

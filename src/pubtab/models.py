@@ -13,13 +13,14 @@ class CellStyle:
     bold: bool = False
     italic: bool = False
     underline: bool = False
-    color: Optional[str] = None
-    bg_color: Optional[str] = None
+    color: Optional[str] = None  # text color
+    bg_color: Optional[str] = None  # background color
     alignment: str = "center"
     fmt: Optional[str] = None
     strip_leading_zero: bool = True  # 0.451 → .451
     raw_latex: bool = False  # skip escaping, pass value as-is
     diagbox: Optional[List[str]] = None  # e.g. ["Models", "Datasets"]
+    rotation: int = 0  # rotation angle in degrees
 
 
 @dataclass(frozen=True)

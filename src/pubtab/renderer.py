@@ -25,6 +25,10 @@ def _cell_to_latex(cell: Cell) -> str:
     else:
         text = latex_escape(str(val))
 
+    # Multi-line cell: convert \n back to \makecell{...\\...}
+    if "\n" in text:
+        text = "\\makecell{" + text.replace("\n", "\\\\") + "}"
+
     # Diagbox: diagonal header cell (before styling so bold/italic wraps it)
     if cell.style.diagbox:
         parts = cell.style.diagbox
