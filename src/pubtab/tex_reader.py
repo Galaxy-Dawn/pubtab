@@ -57,6 +57,35 @@ def read_tex(tex: str) -> TableData:
     # Detect header rows (rows before first data-like row)
     header_rows = _detect_header_rows(expanded, num_cols)
 
+    # Auto-merge empty header cells with content cells below
+    if header_rows > 1 and len(expanded) >= header_rows:
+        # Track positions covered by multicolumn/multirow in row 0
+        covered = set()
+        for c, cell in enumerate(expanded[0]):
+            if cell.colspan > 1:
+                for dc in range(1, cell.colspan):
+                    if c + dc < num_cols:
+                        covered.add(c + dc)
+        for c in range(num_cols):
+            if c in covered:
+                continue
+            top = expanded[0][c]
+            if top.value in ("", None) and top.colspan == 1 and top.rowspan <= 1:
+                below = expanded[1][c]
+                if below.value not in ("", None):
+                    # Move content up with rowspan
+                    expanded[0][c] = Cell(
+                        value=below.value, style=below.style,
+                        rowspan=header_rows, colspan=below.colspan,
+                    )
+                    expanded[1][c] = Cell(value="", style=CellStyle())
+                elif below.value in ("", None) and below.colspan == 1:
+                    # Both empty — merge for clean header
+                    expanded[0][c] = Cell(
+                        value="", style=top.style,
+                        rowspan=header_rows, colspan=1,
+                    )
+
     return TableData(
         cells=expanded,
         num_rows=len(expanded),
@@ -73,12 +102,33 @@ def _strip_comments(tex: str) -> str:
 def _extract_tabular_body(tex: str) -> Optional[str]:
     """Extract content between \\begin{tabular} and \\end{tabular}."""
     tex = _strip_comments(tex)
-    # Match column spec with nested braces (e.g. {@{} p{0.9cm} ...@{}})
+    # Find outermost \begin{tabular}{colspec}...\end{tabular}
     m = re.search(
-        rf"\\begin\{{tabular\}}\{{({_NESTED})\}}(.*?)\\end\{{tabular\}}",
+        rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
         tex, re.DOTALL,
     )
-    return m.group(2).strip() if m else None
+    if not m:
+        return None
+    start = m.end()
+    # Walk forward counting nested \begin{tabular}/\end{tabular}
+    depth = 1
+    pos = start
+    begin_tag = "\\begin{tabular}"
+    end_tag = "\\end{tabular}"
+    while pos < len(tex) and depth > 0:
+        bi = tex.find(begin_tag, pos)
+        ei = tex.find(end_tag, pos)
+        if ei == -1:
+            break
+        if bi != -1 and bi < ei:
+            depth += 1
+            pos = bi + len(begin_tag)
+        else:
+            depth -= 1
+            if depth == 0:
+                return tex[start:ei].strip()
+            pos = ei + len(end_tag)
+    return None
 
 
 def _split_rows(body: str) -> List[str]:
@@ -260,6 +310,13 @@ def _parse_cell(text: str) -> Cell:
     if m:
         text_color = m.group(1)
         text = text[:m.start()] + m.group(2) + text[m.end():]
+
+    # Extract standalone \color{name} (switch command, affects rest of group)
+    if not text_color:
+        m = re.search(r"\\color(?:\[[^\]]*\])?\{([^}]*)\}", text)
+        if m:
+            text_color = m.group(1)
+            text = (text[:m.start()] + text[m.end():]).strip()
 
     # Extract \colorbox{color}{content} (loop for multiple occurrences)
     for _ in range(10):
@@ -568,6 +625,8 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\ref[a-z]*:[^\s,)]+", "", text)
     # Remove \mathcal without braces (brace-stripped): \mathcalP → P
     text = re.sub(r"\\math(?:bf|cal|it|rm|tt|sf)(?=[A-Z0-9])", "", text)
+    # Generic fallback: strip any remaining \command that wasn't caught above
+    text = re.sub(r"\\[a-zA-Z]+\s*", "", text)
     # Remove trailing backslash
     text = re.sub(r"\\$", "", text)
     # Normalize spacing around ±: "0.626 ±0.018" → "0.626±0.018"
@@ -604,8 +663,16 @@ def _expand_row(cells: List[Cell], num_cols: int) -> List[Cell]:
 
 
 def _detect_header_rows(rows: List[List[Cell]], num_cols: int) -> int:
-    """Detect number of header rows by looking for multirow in first row."""
+    """Detect number of header rows.
+
+    Checks: multirow spans, or multicolumn cells indicating a multi-row header.
+    """
     if not rows:
         return 1
     max_rowspan = max((c.rowspan for c in rows[0]), default=1)
-    return max(max_rowspan, 1)
+    if max_rowspan > 1:
+        return max_rowspan
+    # First row has partial multicolumn → likely a multi-row header
+    if len(rows) > 1 and any(1 < c.colspan < num_cols for c in rows[0]):
+        return 2
+    return 1
