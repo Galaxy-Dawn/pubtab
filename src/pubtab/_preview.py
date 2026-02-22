@@ -141,7 +141,13 @@ def _build_standalone(tex_content: str, theme: str = "three_line",
     """Wrap table LaTeX in a standalone document."""
     config, _ = load_theme(theme)
     all_pkgs = list(config.packages) + ["caption", "graphicx"]
-    pkgs = "\n".join(f"\\usepackage{{{p}}}" for p in all_pkgs)
+    pkg_lines = []
+    for p in all_pkgs:
+        if p == "xcolor":
+            pkg_lines.append("\\usepackage[table]{xcolor}")
+        else:
+            pkg_lines.append(f"\\usepackage{{{p}}}")
+    pkgs = "\n".join(pkg_lines)
     extra = f"\n{preamble}" if preamble else ""
     inner = _strip_table_float(tex_content)
     # Auto-wrap in resizebox for preview if not already present

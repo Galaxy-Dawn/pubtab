@@ -83,15 +83,20 @@ def _read_xlsx(
             style = _extract_xlsx_style(cell)
             value = cell.value if cell.value is not None else ""
 
-            # Auto-detect diagbox: "X / Y" pattern in header area
+            # Auto-detect diagbox: "X / Y" pattern — only for non-numeric labels
             if isinstance(value, str) and " / " in value:
                 parts = value.split(" / ", 1)
-                style = CellStyle(
-                    bold=style.bold, italic=style.italic, underline=style.underline,
-                    color=style.color, bg_color=style.bg_color, alignment=style.alignment,
-                    fmt=style.fmt, diagbox=parts,
-                )
-                value = ""
+                # Numeric or dash values → plain "left/right", not diagbox
+                _numeric = all(p.strip().replace('.','',1).replace('-','',1).lstrip('-').isdigit() or p.strip() == '--' for p in parts)
+                if _numeric:
+                    value = f"{parts[0].strip()}/{parts[1].strip()}"
+                else:
+                    style = CellStyle(
+                        bold=style.bold, italic=style.italic, underline=style.underline,
+                        color=style.color, bg_color=style.bg_color, alignment=style.alignment,
+                        fmt=style.fmt, diagbox=parts,
+                    )
+                    value = ""
 
             row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan))
         cells.append(row_cells)

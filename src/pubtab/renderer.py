@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import Optional, Union
 
@@ -45,15 +45,16 @@ def _cell_to_latex(cell: Cell) -> str:
         if cell.style.color:
             rgb = hex_to_latex_color(cell.style.color)
             text = f"\\textcolor[RGB]{{{rgb}}}{{{text}}}"
-        if cell.style.bg_color:
-            rgb = hex_to_latex_color(cell.style.bg_color)
-            text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
-
     if cell.rowspan > 1:
         text = f"\\multirow{{{cell.rowspan}}}{{*}}{{{text}}}"
     if cell.colspan > 1:
         align = cell.style.alignment[0] if cell.style.alignment else "c"
         text = f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}"
+
+    # cellcolor must be OUTSIDE multirow/multicolumn to color the full cell
+    if not cell.style.raw_latex and cell.style.bg_color:
+        rgb = hex_to_latex_color(cell.style.bg_color)
+        text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
 
     return text
 
@@ -85,7 +86,7 @@ def _auto_cmidrule(header_row_cells: list[Cell], num_cols: int) -> Optional[str]
         if span > 1:
             skip = span - 1
             if span < num_cols and cell.rowspan <= 1:
-                rules.append(f"\\cmidrule(lr){{{col}-{col + span - 1}}}")
+                rules.append(f"\\cline{{{col}-{col + span - 1}}}")
         col += 1 if span == 1 else span
     return " ".join(rules) if rules else None
 
@@ -142,22 +143,57 @@ def render(
     )
     tmpl = env.from_string(template_str)
 
+    # Build vertical merge maps for negative multirow (bg_color + rowspan > 1)
+    _vmerge_bg: dict[tuple[int, int], str] = {}
+    _vmerge_neg: dict[tuple[int, int], tuple[int, str]] = {}  # last row -> (rowspan, styled_text)
+    _vmerge_suppress: set[tuple[int, int]] = set()  # master cells to suppress content
+    for ri, row in enumerate(table.cells):
+        ci = 0
+        for cell in row:
+            if cell.rowspan > 1 and cell.style.bg_color:
+                _vmerge_suppress.add((ri, ci))
+                for dr in range(1, cell.rowspan):
+                    _vmerge_bg[(ri + dr, ci)] = cell.style.bg_color
+                # Get styled text without multirow/cellcolor for negative multirow
+                plain = Cell(value=cell.value,
+                             style=replace(cell.style, bg_color=None),
+                             rowspan=1, colspan=cell.colspan)
+                _vmerge_neg[(ri + cell.rowspan - 1, ci)] = (cell.rowspan, _cell_to_latex(plain))
+            ci += 1
+
     # Convert cells to LaTeX strings, skipping horizontal merge placeholders
     all_rows = []
     has_p_cols = col_spec and "p{" in (col_spec or "")
-    for row in table.cells:
+    for ri, row in enumerate(table.cells):
         latex_row = []
         skip = 0
+        ci = 0
         for cell in row:
             if skip > 0:
                 skip -= 1
+                ci += 1
                 continue
             if cell.colspan > 1:
                 skip = cell.colspan - 1
-            s = _cell_to_latex(cell)
+            if (ri, ci) in _vmerge_suppress:
+                # Master cell with bg_color: emit only cellcolor (content goes to last row)
+                rgb = hex_to_latex_color(cell.style.bg_color)
+                s = f"\\cellcolor[RGB]{{{rgb}}}"
+            elif (ri, ci) in _vmerge_neg:
+                # Last placeholder row: negative multirow with content
+                rowspan, styled = _vmerge_neg[(ri, ci)]
+                rgb = hex_to_latex_color(_vmerge_bg.get((ri, ci), ""))
+                s = f"\\cellcolor[RGB]{{{rgb}}}\\multirow{{-{rowspan}}}{{*}}{{{styled}}}"
+            elif not cell.value and cell.value != 0 and (ri, ci) in _vmerge_bg:
+                # Other placeholder rows: just cellcolor
+                rgb = hex_to_latex_color(_vmerge_bg[(ri, ci)])
+                s = f"\\cellcolor[RGB]{{{rgb}}}"
+            else:
+                s = _cell_to_latex(cell)
             if has_p_cols and cell.colspan == 1 and s and not s.startswith("\\multicolumn"):
                 s = f"\\multicolumn{{1}}{{c}}{{{s}}}"
             latex_row.append(s)
+            ci += 1
         all_rows.append(latex_row)
 
     raw_header_rows = all_rows[: table.header_rows]

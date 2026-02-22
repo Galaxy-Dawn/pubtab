@@ -3,6 +3,8 @@
 {% endif %}{% if spacing and spacing.heavyrulewidth %}\setlength{\heavyrulewidth}{ {{- spacing.heavyrulewidth -}} }
 {% endif %}{% if spacing and spacing.lightrulewidth %}\setlength{\lightrulewidth}{ {{- spacing.lightrulewidth -}} }
 {% endif %}{% if spacing and spacing.arrayrulewidth %}\setlength{\arrayrulewidth}{ {{- spacing.arrayrulewidth -}} }
+{% endif %}{% if spacing and spacing.aboverulesep %}\setlength{\aboverulesep}{ {{- spacing.aboverulesep -}} }
+{% endif %}{% if spacing and spacing.belowrulesep %}\setlength{\belowrulesep}{ {{- spacing.belowrulesep -}} }
 {% endif %}{% if wide %}\begin{table*}[{{ position | default('t') }}]{% else %}\begin{table}[{{ position | default('htbp') }}]{% endif %}
 \centering
 {% if caption and caption_position == 'top' %}\caption{ {{- caption -}} }

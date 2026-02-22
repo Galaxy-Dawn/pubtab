@@ -108,7 +108,7 @@ def tex2xlsx(input_file: str, output: str) -> None:
 @click.option("--preamble", default=None, help="Extra LaTeX preamble (e.g. custom commands).")
 def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, preamble: str | None) -> None:
     """Generate PNG preview from a .tex file."""
-    from .preview import preview as gen_preview
+    from ._preview import preview as gen_preview
 
     result = gen_preview(tex_file, output=output, theme=theme, dpi=dpi, preamble=preamble)
     click.echo(f"Preview: {result}")

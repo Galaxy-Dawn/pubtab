@@ -140,7 +140,7 @@ def convert(
     Path(output).write_text(tex)
 
     if p["preview"]:
-        from .preview import preview as _preview
+        from ._preview import preview as _preview
         png_path = Path(output).with_suffix(".png")
         _preview(output, output=png_path, theme=p["theme"], dpi=p["dpi"],
                  preamble=p["preamble"])
@@ -167,7 +167,7 @@ def preview(
     Returns:
         Path to generated PNG.
     """
-    from .preview import preview as _preview
+    from ._preview import preview as _preview
 
     return _preview(tex_input, output=output, theme=theme, dpi=dpi, preamble=preamble)
 

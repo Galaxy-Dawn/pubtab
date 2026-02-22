@@ -7,7 +7,7 @@ import pytest
 
 from pubtab import convert, read_excel, tex_to_excel
 from pubtab.models import SpacingConfig, TableData
-from pubtab.preview import _build_standalone, _find_pdflatex, compile_pdf
+from pubtab._preview import _build_standalone, _find_pdflatex, compile_pdf
 from pubtab.renderer import render
 from pubtab.tex_reader import read_tex
 

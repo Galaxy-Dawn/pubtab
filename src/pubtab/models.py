@@ -55,6 +55,8 @@ class SpacingConfig:
     heavyrulewidth: Optional[str] = "1.0pt"
     lightrulewidth: Optional[str] = "0.5pt"
     arrayrulewidth: Optional[str] = "0.5pt"
+    aboverulesep: Optional[str] = "0pt"
+    belowrulesep: Optional[str] = "0pt"
 
 
 @dataclass(frozen=True)
