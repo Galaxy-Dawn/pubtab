@@ -1,0 +1,149 @@
+\begin{table*}[htbp]
+\centering
+\caption{\textbf{Results of the latent space transformation and the optimization of calculation.} Lower GFLOPs indicates lower computational cost. The best results are in {{\textbf{bold}}}.}
+\label{tab:Table.3}
+\resizebox{0.94\textwidth}{!}{
+\scriptsize
+\begin{tabular}{@{} p{1.2cm} p{0.5cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.52cm} p{0.52cm} p{0.52cm} p{0.52cm} @{}}
+\toprule
+\multirow{2}{*}{\textbf{Setting}} & \multicolumn{1}{c}{\multirow{2}{*}{\textbf{\diagbox{GFLOPs}{Datasets}}}} & \multicolumn{2}{c}{\textbf{Du-IN}} & \multicolumn{2}{c}{\textbf{SEED-DV}} & \multicolumn{2}{c}{\textbf{ThingsEEG}} & \multicolumn{2}{c}{\textbf{FacesHouses}} & \multicolumn{2}{c}{\textbf{OpenMIIR-P}} & \multicolumn{2}{c}{\textbf{OpenMIIR-I}} & \multicolumn{2}{c}{\textbf{Chisco-R}} & \multicolumn{2}{c}{\textbf{Chisco-I}}\\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8} \cmidrule(lr){9-10} \cmidrule(lr){11-12} \cmidrule(lr){13-14} \cmidrule(lr){15-16} \cmidrule(lr){17-18}
+\multicolumn{2}{c}{} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}}\\
+\midrule
+\multicolumn{18}{c}{\textbf{\textit{Macro Study: Transformation of the Feature Map Number}}} \\
+\midrule
+\multirow{1}{*}{Leap Approach} 
+  & \multicolumn{1}{c}{3996} 
+  & \multicolumn{1}{c}{{.635}} 
+  & \multicolumn{1}{c}{{.630}} 
+  & \multicolumn{1}{c}{{\textbf{.064}}} 
+  & \multicolumn{1}{c}{{.058}} 
+  & \multicolumn{1}{c}{{\textbf{.216}}}
+  & \multicolumn{1}{c}{{\textbf{.206}}}
+  & \multicolumn{1}{c}{.857} 
+  & \multicolumn{1}{c}{.856} 
+  & \multicolumn{1}{c}{{.980}} 
+  & \multicolumn{1}{c}{{.980}} 
+  & \multicolumn{1}{c}{{.976}} 
+  & \multicolumn{1}{c}{{.976}} 
+  & \multicolumn{1}{c}{{.126}} 
+  & \multicolumn{1}{c}{{.109}} 
+  & \multicolumn{1}{c}{{\textbf{.115}}} 
+  & \multicolumn{1}{c}{{.093}} \\ 
+\multirow{1}{*}{\textbf{Step Approach}}
+  & \multicolumn{1}{c}{\textbf{1287}}
+  & \multicolumn{1}{c}{{\textbf{.647}}} 
+  & \multicolumn{1}{c}{{\textbf{.641}}} 
+  & \multicolumn{1}{c}{{.063}} 
+  & \multicolumn{1}{c}{{\textbf{.058}}} 
+  & \multicolumn{1}{c}{{.184}} 
+  & \multicolumn{1}{c}{{.177}} 
+  & \multicolumn{1}{c}{{\textbf{.886}}} 
+  & \multicolumn{1}{c}{{\textbf{.885}}} 
+  & \multicolumn{1}{c}{{\textbf{.981}}} 
+  & \multicolumn{1}{c}{{\textbf{.980}}} 
+  & \multicolumn{1}{c}{{\textbf{.982}}} 
+  & \multicolumn{1}{c}{{\textbf{.982}}} 
+  & \multicolumn{1}{c}{{\textbf{.127}}} 
+  & \multicolumn{1}{c}{{\textbf{.113}}} 
+  & \multicolumn{1}{c}{{.114}} 
+  & \multicolumn{1}{c}{{\textbf{.095}}} \\ 
+\midrule
+\multicolumn{18}{c}{\textbf{\textit{Macro Study: Transformation of the Feature Map Size}}} \\
+\midrule
+\multirow{1}{*}{Pyramid Approach} 
+  & \multicolumn{1}{c}{1287} 
+  & \multicolumn{1}{c}{{.647}} 
+  & \multicolumn{1}{c}{{.641}} 
+  & \multicolumn{1}{c}{{\textbf{.063}}}
+  & \multicolumn{1}{c}{{\textbf{.058}}}
+  & \multicolumn{1}{c}{{.184}} 
+  & \multicolumn{1}{c}{{.177}} 
+  & \multicolumn{1}{c}{{.886}} 
+  & \multicolumn{1}{c}{{.885}} 
+  & \multicolumn{1}{c}{{\textbf{.981}}}
+  & \multicolumn{1}{c}{{\textbf{.980}}}
+  & \multicolumn{1}{c}{{.982}} 
+  & \multicolumn{1}{c}{{.982}} 
+  & \multicolumn{1}{c}{{.127}} 
+  & \multicolumn{1}{c}{{.113}} 
+  & \multicolumn{1}{c}{{.114}} 
+  & \multicolumn{1}{c}{{.095}} \\ 
+\multirow{1}{*}{\textbf{Pagoda Approach}}
+  & \multicolumn{1}{c}{\textbf{758}}
+  & \multicolumn{1}{c}{{\textbf{.701}}} 
+  & \multicolumn{1}{c}{{\textbf{.698}}} 
+  & \multicolumn{1}{c}{.059}
+  & \multicolumn{1}{c}{.053}
+  & \multicolumn{1}{c}{{\textbf{.204}}} 
+  & \multicolumn{1}{c}{{\textbf{.197}}}
+  & \multicolumn{1}{c}{{\textbf{.911}}}
+  & \multicolumn{1}{c}{{\textbf{.910}}}  
+  & \multicolumn{1}{c}{.973}
+  & \multicolumn{1}{c}{.973}
+  & \multicolumn{1}{c}{{\textbf{.986}}} 
+  & \multicolumn{1}{c}{{\textbf{.985}}} 
+  & \multicolumn{1}{c}{{\textbf{.128}}} 
+  & \multicolumn{1}{c}{{\textbf{.116}}}
+  & \multicolumn{1}{c}{{\textbf{.116}}} 
+  & \multicolumn{1}{c}{{\textbf{.096}}} \\ 
+\midrule
+\multicolumn{18}{c}{\textbf{\textit{Micro Study}}} \\
+\midrule
+\multirow{1}{*}{Vanilla Conv} 
+  & \multicolumn{1}{c}{758} 
+  & \multicolumn{1}{c}{.701}
+  & \multicolumn{1}{c}{.698}
+  & \multicolumn{1}{c}{.059}
+  & \multicolumn{1}{c}{.053}
+  & \multicolumn{1}{c}{.204}
+  & \multicolumn{1}{c}{.197}
+  & \multicolumn{1}{c}{.911}
+  & \multicolumn{1}{c}{.910}
+  & \multicolumn{1}{c}{.973}
+  & \multicolumn{1}{c}{.973}
+  & \multicolumn{1}{c}{.986}
+  & \multicolumn{1}{c}{.985}
+  & \multicolumn{1}{c}{.128}
+  & \multicolumn{1}{c}{{\textbf{.116}}}
+  & \multicolumn{1}{c}{.116}
+  & \multicolumn{1}{c}{.096} \\ 
+\multirow{1}{*}{Seperable Conv} 
+  & \multicolumn{1}{c}{492} 
+  & \multicolumn{1}{c}{.704}
+  & \multicolumn{1}{c}{.699}
+  & \multicolumn{1}{c}{.061}
+  & \multicolumn{1}{c}{.051}
+  & \multicolumn{1}{c}{.181}
+  & \multicolumn{1}{c}{.176}
+  & \multicolumn{1}{c}{.915}
+  & \multicolumn{1}{c}{.915}
+  & \multicolumn{1}{c}{.979}
+  & \multicolumn{1}{c}{.979}
+  & \multicolumn{1}{c}{.985}
+  & \multicolumn{1}{c}{.985}
+  & \multicolumn{1}{c}{.118}
+  & \multicolumn{1}{c}{.107}
+  & \multicolumn{1}{c}{.111}
+  & \multicolumn{1}{c}{.098} \\ 
+\multirow{1}{*}{\textbf{Group Conv}}
+  & \multicolumn{1}{c}{\textbf{482}} 
+  & \multicolumn{1}{c}{{\textbf{.707}}}
+  & \multicolumn{1}{c}{{\textbf{.704}}}
+  & \multicolumn{1}{c}{{\textbf{.069}}}
+  & \multicolumn{1}{c}{{\textbf{.061}}}
+  & \multicolumn{1}{c}{{\textbf{.207}}}
+  & \multicolumn{1}{c}{{\textbf{.200}}}
+  & \multicolumn{1}{c}{{\textbf{.920}}}
+  & \multicolumn{1}{c}{{\textbf{.920}}}
+  & \multicolumn{1}{c}{{\textbf{.983}}}
+  & \multicolumn{1}{c}{{\textbf{.983}}}
+  & \multicolumn{1}{c}{{\textbf{.990}}}
+  & \multicolumn{1}{c}{{\textbf{.990}}}
+  & \multicolumn{1}{c}{{\textbf{.129}}}
+  & \multicolumn{1}{c}{.112}
+  & \multicolumn{1}{c}{{\textbf{.120}}}
+  & \multicolumn{1}{c}{{\textbf{.103}}} \\ 
+\bottomrule
+\end{tabular}}
+\end{table*}

@@ -1,0 +1,224 @@
+\setlength{\tabcolsep}{1.2pt}   % Set the uniform column spacing
+\renewcommand{\arraystretch}{0.95} % Reduce row height
+\newcommand{\var}[1]{{\tiny #1}}
+% \newcommand{\var}[1]{{\fontsize{5pt}{5pt}\selectfont #1}}
+\setlength{\heavyrulewidth}{1.0pt}   % Top and bottom line thickness
+\setlength{\lightrulewidth}{0.5pt}    % Middle line thickness
+\setlength{\arrayrulewidth}{0.5pt}    % Uniform thickness of horizontal lines
+
+\begin{table*}[t]
+\centering % 让表格居中
+
+\caption{\textbf{Average classification accuracy} (mean $\pm$ std across three folds) for models on multiple neural decoding datasets. Higher throughput indicates faster inference. The best results are in \textbf{bold}. We use \textemdash\ to denote entries that are not applicable or not evaluated. Due to substantial differences between iEEG and EEG, we evaluate each pretrained model only on the modality it was pretrained on, the corresponding cross-modality cells are therefore marked with \textemdash. In addition, CBraMod uses a patch size of 200, whereas \emph{ThingsEEG} has an input length of 100, so CBraMod cannot be run on \emph{ThingsEEG} and is marked \textemdash.}
+
+\label{tab:Table.4}
+\resizebox{0.9\textwidth}{!}{ % 调整表格宽度为文本宽度，高度自适应
+\scriptsize
+\begin{tabular}{@{} p{1.2cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} p{0.8cm} @{}}
+\toprule
+% \multicolumn{2}{c}{\multirow{3}{*}{\textbf{Model}}} &
+\multicolumn{2}{c}{\multirow{3}{*}{\textbf{\diagbox{Models}{Datasets}}}} &
+\multicolumn{6}{c}{\textbf{Speech Decoding}} &
+\multicolumn{6}{c}{\textbf{Visual Decoding}} &
+\multicolumn{4}{c}{\textbf{Auditory Decoding}} \\
+\cmidrule(lr){3-8} \cmidrule(lr){9-14} \cmidrule(lr){15-18}
+& \multicolumn{1}{c}{}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{Du-IN}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Chisco-R}}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Chisco-I}}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{SEED-DV}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Things-\\EEG}}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Faces-\\Houses}}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Open-\\MIIR-P}}}}
+& \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Open-\\MIIR-I}}}} \\
+
+% \multicolumn{2}{c}{\multirow{2}{*}{\textbf{Model}}} &
+% % \multicolumn{1}{c}{\multirow{2}{*}{\textbf{\makecell{Params\\(M)}}}} &
+% \multicolumn{1}{c}{\multirow{2}{*}{\textbf{\makecell{Throughput\\(sample/s)}}}}
+% % & \multicolumn{1}{c}{\multirow{2}{*}{\textbf{\makecell{FLOPs\\(G)}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{Du-IN}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Chisco-R}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Chisco-I}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{SEED-DV}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Things-\\EEG}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Faces-\\Houses}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Open-\\MIIR-P}}}}
+% & \multicolumn{2}{c}{\multirow{2}{*}{\textbf{\makecell{Open-\\MIIR-I}}}} \\
+
+\\
+\midrule
+\multicolumn{2}{l}{\multirow{1}{*}{ConvFormer}}
+  % & \multicolumn{1}{c}{24}
+  % & \multicolumn{1}{c}{357}
+  & \multicolumn{2}{c}{.394\var{$\pm$.005}}
+  & \multicolumn{2}{c}{.086\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.080\var{$\pm$.004}}
+  & \multicolumn{2}{c}{.024\var{$\pm$.000}}
+  & \multicolumn{2}{c}{.151\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.820\var{$\pm$.013}}
+  & \multicolumn{2}{c}{.975\var{$\pm$.005}}
+  & \multicolumn{2}{c}{.976\var{$\pm$.002}}
+\\
+\multicolumn{2}{l}{\multirow{1}{*}{CAFormer}}
+  % & \multicolumn{1}{c}{26}
+  % & \multicolumn{1}{c}{367}
+  & \multicolumn{2}{c}{.221\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.081\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.076\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.025\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.160\var{$\pm$.009}}
+  & \multicolumn{2}{c}{.800\var{$\pm$.012}}
+  & \multicolumn{2}{c}{.976\var{$\pm$.006}}
+  & \multicolumn{2}{c}{.977\var{$\pm$.002}}
+\\
+
+\midrule
+\multicolumn{2}{l}{\multirow{1}{*}{ModernTCN}}
+  % & \multicolumn{1}{c}{34}
+  % & \multicolumn{1}{c}{361}
+  & \multicolumn{2}{c}{.339\var{$\pm$.005}}
+  & \multicolumn{2}{c}{.079\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.074\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.040\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.123\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.835\var{$\pm$.006}}
+  & \multicolumn{2}{c}{.964\var{$\pm$.010}}
+  & \multicolumn{2}{c}{.935\var{$\pm$.002}}
+\\
+
+\multicolumn{2}{l}{\multirow{1}{*}{MedFormer}}
+  % & \multicolumn{1}{c}{36}
+  % & \multicolumn{1}{c}{272}
+  & \multicolumn{2}{c}{.212\var{$\pm$.006}}
+  & \multicolumn{2}{c}{.089\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.085\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.025\var{$\pm$.000}}
+  & \multicolumn{2}{c}{.045\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.756\var{$\pm$.011}}
+  & \multicolumn{2}{c}{.948\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.941\var{$\pm$.001}}
+
+\\
+
+\midrule
+\multicolumn{2}{l}{\multirow{1}{*}{DeepConvNet}}
+  % & \multicolumn{1}{c}{34}
+  % & \multicolumn{1}{c}{361}
+  & \multicolumn{2}{c}{.053\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.053\var{$\pm$.004}}
+  & \multicolumn{2}{c}{.052\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.029\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.091\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.822\var{$\pm$.005}}
+  & \multicolumn{2}{c}{.896\var{$\pm$.009}}
+  & \multicolumn{2}{c}{.789\var{$\pm$.005}}
+
+\\
+
+\multicolumn{2}{l}{\multirow{1}{*}{EEGNet}}
+  % & \multicolumn{1}{c}{36}
+  % & \multicolumn{1}{c}{272}
+  & \multicolumn{2}{c}{.060\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.071\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.082\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.046\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.070\var{$\pm$.000}}
+  & \multicolumn{2}{c}{.830\var{$\pm$.006}}
+  & \multicolumn{2}{c}{.915\var{$\pm$.010}}
+  & \multicolumn{2}{c}{.852\var{$\pm$.006}}
+\\
+\multicolumn{2}{l}{\multirow{1}{*}{Conformer}}
+  % & \multicolumn{1}{c}{38}
+  % & \multicolumn{1}{c}{432}
+  & \multicolumn{2}{c}{.205\var{$\pm$.003}}
+  & \multicolumn{2}{c}{.095\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.087\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.033\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.077\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.762\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.962\var{$\pm$.013}}
+  & \multicolumn{2}{c}{.930\var{$\pm$.002}}
+
+\\
+\multicolumn{2}{l}{\multirow{1}{*}{SPaRCNet}}
+  % & \multicolumn{1}{c}{24}
+  % & \multicolumn{1}{c}{152}
+  & \multicolumn{2}{c}{{.026\var{$\pm$.001}}}
+  & \multicolumn{2}{c}{.005\var{$\pm$.000}}
+  & \multicolumn{2}{c}{.005\var{$\pm$.000}}
+  & \multicolumn{2}{c}{.026\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.189\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.805\var{$\pm$.007}}
+  & \multicolumn{2}{c}{.969\var{$\pm$.007}}
+  & \multicolumn{2}{c}{{{.948\var{$\pm$.005}}}}
+
+\\
+\midrule
+\multicolumn{2}{l}{\multirow{1}{*}{seegnificant}}
+  % & \multicolumn{1}{c}{38}
+  % & \multicolumn{1}{c}{432}
+  & \multicolumn{2}{c}{.053\var{$\pm$.002}}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{.831\var{$\pm$.006}}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{\textemdash}
+% \\
+% \multicolumn{2}{c}{\multirow{1}{*}{EEGPT}}
+%   % & \multicolumn{1}{c}{34}
+%   & \multicolumn{1}{c}{437}
+%   & \multicolumn{2}{c}{-}
+%   & \multicolumn{2}{c}{.005\var{$\pm$.000}}
+%   & \multicolumn{2}{c}{.005\var{$\pm$.000}}
+%   & \multicolumn{2}{c}{.025\var{$\pm$.000}}
+%   & \multicolumn{2}{c}{.083\var{$\pm$.001}}
+%   & \multicolumn{2}{c}{-}
+%   & \multicolumn{2}{c}{.682\var{$\pm$.006}}
+%   & \multicolumn{2}{c}{.352\var{$\pm$.009}}
+\\
+\multicolumn{2}{l}{\multirow{1}{*}{CBraMod}}
+  % & \multicolumn{1}{c}{4}
+  % & \multicolumn{1}{c}{347}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{.084\var{$\pm$.002}}
+  & \multicolumn{2}{c}{.077\var{$\pm$.001}}
+  & \multicolumn{2}{c}{.026\var{$\pm$.002}}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{\textemdash}
+  & \multicolumn{2}{c}{.975\var{$\pm$.011}}
+  & \multicolumn{2}{c}{.933\var{$\pm$.008}}
+\\
+\midrule
+\multicolumn{2}{l}{\multirow{1}{*}{NeuroSketch-Base}}
+  % & \multicolumn{1}{c}{9}
+  % & \multicolumn{1}{c}{{{532}}}
+  & \multicolumn{2}{c}{{{.472\var{$\pm$.006}}}}
+  & \multicolumn{2}{c}{{{.111\var{$\pm$.001}}}}
+  & \multicolumn{2}{c}{{\textbf{.103\var{$\pm$.002}}}}
+  & \multicolumn{2}{c}{{{.045\var{$\pm$.002}}}}
+  & \multicolumn{2}{c}{{\textbf{.196\var{$\pm$.002}}}}
+  & \multicolumn{2}{c}{{{.879\var{$\pm$.008}}}}
+  & \multicolumn{2}{c}{{{.981\var{$\pm$.010}}}}
+  & \multicolumn{2}{c}{{{.970\var{$\pm$.002}}}}
+\\
+\multicolumn{2}{l}{\multirow{1}{*}{NeuroSketch-Large}}
+  % & \multicolumn{1}{c}{4}
+  % & \multicolumn{1}{c}{347}
+  & \multicolumn{2}{c}{\textbf{.652\var{$\pm$.002}}}
+  & \multicolumn{2}{c}{\textbf{.116\var{$\pm$.001}}}
+  & \multicolumn{2}{c}{.095\var{$\pm$.005}}
+  & \multicolumn{2}{c}
+  {{\textbf{.047\var{$\pm$.003}}}}
+  & \multicolumn{2}{c}{{{.177\var{$\pm$.001}}}}
+  & \multicolumn{2}{c}
+  {{\textbf{.879\var{$\pm$.007}}}}
+  & \multicolumn{2}{c}
+  {{\textbf{.982\var{$\pm$.009}}}}
+  & \multicolumn{2}{c}
+  {{\textbf{.977\var{$\pm$.002}}}}
+\\
+\bottomrule
+\end{tabular}}
+\end{table*}

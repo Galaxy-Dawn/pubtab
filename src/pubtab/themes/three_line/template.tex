@@ -1,0 +1,25 @@
+{% if spacing and spacing.tabcolsep %}\setlength{\tabcolsep}{ {{- spacing.tabcolsep -}} }
+{% endif %}{% if spacing and spacing.arraystretch %}\renewcommand{\arraystretch}{ {{- spacing.arraystretch -}} }
+{% endif %}{% if spacing and spacing.heavyrulewidth %}\setlength{\heavyrulewidth}{ {{- spacing.heavyrulewidth -}} }
+{% endif %}{% if spacing and spacing.lightrulewidth %}\setlength{\lightrulewidth}{ {{- spacing.lightrulewidth -}} }
+{% endif %}{% if spacing and spacing.arrayrulewidth %}\setlength{\arrayrulewidth}{ {{- spacing.arrayrulewidth -}} }
+{% endif %}{% if wide %}\begin{table*}[{{ position | default('t') }}]{% else %}\begin{table}[{{ position | default('htbp') }}]{% endif %}
+\centering
+{% if caption and caption_position == 'top' %}\caption{ {{- caption -}} }
+{% if label %}\label{ {{- label -}} }
+{% endif %}{% endif %}{% if resizebox %}\resizebox{ {{- resizebox -}} }{!}{
+{% if font_size %}\{{ font_size }}
+{% endif %}{% else %}{% if font_size %}\{{ font_size }}
+{% endif %}{% endif %}\begin{tabular}{ {{- col_spec -}} }
+\toprule
+{% for row in header_rows %}{% if row is string %}{{ row }}
+{% else %}{{ row | join(' & ') }} \\
+{% endif %}{% endfor %}{% if header_sep %}{{ header_sep }}
+{% else %}\midrule
+{% endif %}{% for row in body_rows %}{% if row is string %}{{ row }}
+{% else %}{{ row | join(' & ') }} \\
+{% endif %}{% endfor %}\bottomrule
+\end{tabular}{% if resizebox %}}{% endif %}
+{% if caption and caption_position == 'bottom' %}\caption{ {{- caption -}} }
+{% if label %}\label{ {{- label -}} }
+{% endif %}{% endif %}{% if wide %}\end{table*}{% else %}\end{table}{% endif %}

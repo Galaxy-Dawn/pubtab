@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+temp/
+.DS_Store
+*.xlsx~
+.env
+.claude/

@@ -1,0 +1,11 @@
+name: three_line
+description: Classic three-line (booktabs) table style for academic papers
+packages:
+  - booktabs
+  - multirow
+  - xcolor
+  - diagbox
+  - makecell
+column_sep: "1em"
+font_size: null
+caption_position: top

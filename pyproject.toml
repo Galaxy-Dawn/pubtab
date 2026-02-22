@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pubtab"
+version = "0.1.0"
+description = "Excel to publication-ready LaTeX tables"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "jinja2>=3.1",
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+preview = ["pdf2image>=1.16"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+pubtab = "pubtab.cli:main"

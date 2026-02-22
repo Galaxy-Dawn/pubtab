@@ -1,0 +1,26 @@
+\setlength{\tabcolsep}{1pt}   % 增加列间距
+\renewcommand{\arraystretch}{1.0} % 调整行高
+\setlength{\heavyrulewidth}{1pt}   % 顶部/底部线宽
+\setlength{\lightrulewidth}{0.5pt} % 中间线宽
+
+\begin{table}[htbp]
+\centering
+\small % 减小字体大小
+\caption{\textbf{Model configuration for basic architecture study.}}
+\label{tab:Table.5}
+\begin{tabular}{@{}cccc@{}} % 使用@{}消除边距，增加列宽
+\toprule
+\textbf{Model} & \textbf{\# Params (M)} & \textbf{\# Layers} & \textbf{\# Dimension} \\
+\midrule
+CNN-1D         & 30  & 20 & 1024 \\
+CNN-2D         & 35  & 16 & 768  \\
+GRU            & 25  & 4  & 512  \\
+Transformer    & 20  & 8  & 512  \\
+PatchTST       & 20  & 8  & 512  \\
+iTransformer   & 20  & 8  & 512  \\
+CNN-GRU        & 34  & 16 & 512  \\
+CNN-Transformer & 32 & 20 & 768  \\
+CNN-Transformer v2 & 36 & 20 & 1024 \\
+\bottomrule
+\end{tabular}
+\end{table}

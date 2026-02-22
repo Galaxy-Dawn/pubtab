@@ -1,0 +1,452 @@
+\setlength{\tabcolsep}{2.4pt}   % Set the uniform column spacing
+\renewcommand{\arraystretch}{1.0} % Reduce row height
+
+\setlength{\heavyrulewidth}{1.0pt}   % Top and bottom line thickness
+\setlength{\lightrulewidth}{0.5pt}    % Middle line thickness
+\setlength{\arrayrulewidth}{0.5pt}    % Uniform thickness of horizontal lines
+
+\begin{table*}[t]
+\centering % 让表格居中
+\caption{\textbf{Results of the basic architecture study and subsequent analyses.} v1 and v2 refer to the two hybrid methods discussed above. The ratio shown in the middle of the table (\emph{e.g.,} 4:1) indicates the proportion of CNN to Transformer layers in each hybrid model. The best results are in {\textbf{bold}} and the second best are {\underline{underlined}}.}
+\label{tab:Table.2}
+\resizebox{0.94\textwidth}{!}{ % 调整表格宽度为文本宽度，高度自适应
+\scriptsize
+\begin{tabular}{@{} p{0.9cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.55cm} p{0.52cm} p{0.52cm} p{0.52cm} p{0.52cm} @{}}
+\toprule
+\multicolumn{2}{c}{\multirow{2}{*}{\textbf{\diagbox{Models}{Datasets}}}} & \multicolumn{2}{c}{\textbf{Du-IN}} & \multicolumn{2}{c}{\textbf{SEED-DV}} & \multicolumn{2}{c}{\textbf{ThingsEEG}} & \multicolumn{2}{c}{\textbf{FacesHouses}} & \multicolumn{2}{c}{\textbf{OpenMIIR-P}} & \multicolumn{2}{c}{\textbf{OpenMIIR-I}} & \multicolumn{2}{c}{\textbf{Chisco-R}} & \multicolumn{2}{c}{\textbf{Chisco-I}}\\ 
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8} \cmidrule(lr){9-10} \cmidrule(lr){11-12} \cmidrule(lr){13-14} \cmidrule(lr){15-16} \cmidrule(lr){17-18}
+\multicolumn{2}{c}{} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}} & \multicolumn{1}{c}{\textbf{Acc}} & \multicolumn{1}{c}{\textbf{F1}}\\
+\midrule
+\multicolumn{18}{c}{\textbf{\textit{Basic Architecture Study}}} \\
+\midrule
+\multicolumn{2}{c}{CNN-1D}  
+  & \multicolumn{1}{c}{{{\underline{.451}}}} % Col3: second highest (.451) vs .647 (max in CNN-2D)
+  & \multicolumn{1}{c}{{{\underline{.446}}}} % Col4: second highest (.446) vs .641 (max in CNN-2D)
+  & \multicolumn{1}{c}{.061}            % Col5: .061 vs .063 (underline in CNN-2D) vs .067 (max in CNN-Trans v1)
+  & \multicolumn{1}{c}{.054}            % Col6: .054 vs .058 (underline in CNN-2D) vs .060 (max in CNN-Trans v1)
+  & \multicolumn{1}{c}{{{\textbf{.202}}}}   % Col7: max (.202) from CNN-1D
+  & \multicolumn{1}{c}{{{\textbf{.191}}}}   % Col8: max (.191) from CNN-1D
+  & \multicolumn{1}{c}{.799}            % Col9: .799 vs {\underline{.845} (PatchTST) vs .886 (max in CNN-2D)
+  & \multicolumn{1}{c}{.796}            % Col10: .796 vs {\underline{.838} (PatchTST) vs .885 (max in CNN-2D)
+  & \multicolumn{1}{c}{{{\underline{.973}}}} % Col11: second highest (.973 from CNN-1D) vs .981 (max in CNN-2D)
+  & \multicolumn{1}{c}{{{\underline{.973}}}} % Col12: second highest (.973 from CNN-1D) vs .980 (max in CNN-2D)
+  & \multicolumn{1}{c}{{\underline{.968}}} % Col13: second highest (.968 from CNN-1D) vs .982 (max in CNN-2D)
+  & \multicolumn{1}{c}{{\underline{.968}}} % Col14: second highest (.968 from CNN-1D) vs .982 (max in CNN-2D)
+  & \multicolumn{1}{c}{.104}            % Col15: .104 vs .127 (max in CNN-2D) vs .123 (GRU gets underline)
+  & \multicolumn{1}{c}{.071}            % Col16: .071 vs .113 (max in CNN-2D) vs .091 (GRU gets underline)
+  & \multicolumn{1}{c}{.100}            % Col17: .100 vs {\underline{.114} (CNN-2D) vs .117 (max in GRU)
+  & \multicolumn{1}{c}{.073}            % Col18: .073 vs .095 (max in CNN-2D) vs .086 (GRU gets underline)
+  \\
+
+\multicolumn{2}{c}{\textbf{CNN-2D}}
+  & \multicolumn{1}{c}{{\textbf{.647}}}   % Col3: max (.647)
+  & \multicolumn{1}{c}{{\textbf{.641}}}   % Col4: max (.641)
+  & \multicolumn{1}{c}{{\underline{.063}}} % Col5: second highest (.063 from CNN-2D) vs .067 (max in CNN-Trans v1)
+  & \multicolumn{1}{c}{{\underline{.058}}} % Col6: second highest (.058 from CNN-2D) vs .060 (max in CNN-Trans v1)
+  & \multicolumn{1}{c}{{\underline{.184}}}            % Col7: .184 becomes underline later if needed; see below.
+                                         % (For Col7, max is .202 in CNN-1D so here .184 is second highest.)
+                                         % Thus, we underline it:
+  & \multicolumn{1}{c}{{\underline{.177}}} % Col8: second highest (.177 from CNN-2D) vs .191 (max in CNN-1D)
+  & \multicolumn{1}{c}{{\textbf{.886}}}   % Col9: max (.886)
+  & \multicolumn{1}{c}{{\textbf{.885}}}   % Col10: max (.885)
+  & \multicolumn{1}{c}{{\textbf{.981}}}   % Col11: max (.981)
+  & \multicolumn{1}{c}{{\textbf{.980}}}   % Col12: max (.980)
+  & \multicolumn{1}{c}{{\textbf{.982}}}   % Col13: max (.982)
+  & \multicolumn{1}{c}{{\textbf{.982}}}   % Col14: max (.982)
+  & \multicolumn{1}{c}{{\textbf{.127}}}   % Col15: max (.127)
+  & \multicolumn{1}{c}{{\textbf{.113}}}   % Col16: max (.113)
+  & \multicolumn{1}{c}{{\underline{.114}}} % Col17: second highest (.114 from CNN-2D) vs .117 (max in GRU)
+  & \multicolumn{1}{c}{{\textbf{.095}}}   % Col18: max (.095)
+  \\
+
+\multicolumn{2}{c}{GRU}     
+  & \multicolumn{1}{c}{.353}            
+  & \multicolumn{1}{c}{.343}            
+  & \multicolumn{1}{c}{.025}            
+  & \multicolumn{1}{c}{.001}            
+  & \multicolumn{1}{c}{.040}            
+  & \multicolumn{1}{c}{.037}            
+  & \multicolumn{1}{c}{.774}            
+  & \multicolumn{1}{c}{.773}            
+  & \multicolumn{1}{c}{.146}            
+  & \multicolumn{1}{c}{.046}            
+  & \multicolumn{1}{c}{.136}            
+  & \multicolumn{1}{c}{.039}            
+  & \multicolumn{1}{c}{{\underline{.123}}} % Col15: second highest (.123 from GRU) vs .127 (max in CNN-2D)
+  & \multicolumn{1}{c}{{\underline{.091}}} % Col16: second highest (.091 from GRU) vs .113 (max in CNN-2D)
+  & \multicolumn{1}{c}{{\textbf{.117}}}   % Col17: max (.117)
+  & \multicolumn{1}{c}{{\underline{.086}}} % Col18: second highest (.086 from GRU) vs .095 (max in CNN-2D)
+  \\
+
+\multicolumn{2}{c}{Transformer}  
+  & \multicolumn{1}{c}{.085}            
+  & \multicolumn{1}{c}{.080}            
+  & \multicolumn{1}{c}{.042}            
+  & \multicolumn{1}{c}{.028}            
+  & \multicolumn{1}{c}{.005}            
+  & \multicolumn{1}{c}{.000}            
+  & \multicolumn{1}{c}{.795}            
+  & \multicolumn{1}{c}{.794}            
+  & \multicolumn{1}{c}{.953}            
+  & \multicolumn{1}{c}{.952}            
+  & \multicolumn{1}{c}{.911}            
+  & \multicolumn{1}{c}{.910}            
+  & \multicolumn{1}{c}{.069}            
+  & \multicolumn{1}{c}{.015}            
+  & \multicolumn{1}{c}{.057}            
+  & \multicolumn{1}{c}{.012}            
+  \\
+
+\multicolumn{2}{c}{PatchTST}  
+  & \multicolumn{1}{c}{.060}            
+  & \multicolumn{1}{c}{.051}            
+  & \multicolumn{1}{c}{.038}            
+  & \multicolumn{1}{c}{.029}            
+  & \multicolumn{1}{c}{.006}            
+  & \multicolumn{1}{c}{.001}            
+  & \multicolumn{1}{c}{{\underline{.845}}} % Col9: second highest (.845 from PatchTST) vs .886 (max in CNN-2D)
+  & \multicolumn{1}{c}{{\underline{.838}}} % Col10: second highest (.838 from PatchTST) vs .885 (max in CNN-2D)
+  & \multicolumn{1}{c}{.906}            
+  & \multicolumn{1}{c}{.904}            
+  & \multicolumn{1}{c}{.766}            
+  & \multicolumn{1}{c}{.760}            
+  & \multicolumn{1}{c}{.050}             
+  & \multicolumn{1}{c}{.005}            
+  & \multicolumn{1}{c}{.050}            
+  & \multicolumn{1}{c}{.005}            
+  \\
+
+\multicolumn{2}{c}{iTransformer}  
+  & \multicolumn{1}{c}{.097}            
+  & \multicolumn{1}{c}{.085}            
+  & \multicolumn{1}{c}{.029}            
+  & \multicolumn{1}{c}{.005}            
+  & \multicolumn{1}{c}{.005}            
+  & \multicolumn{1}{c}{.000}            
+  & \multicolumn{1}{c}{.730}            
+  & \multicolumn{1}{c}{.728}            
+  & \multicolumn{1}{c}{.729}            
+  & \multicolumn{1}{c}{.698}            
+  & \multicolumn{1}{c}{.780}            
+  & \multicolumn{1}{c}{.774}            
+  & \multicolumn{1}{c}{.064}            
+  & \multicolumn{1}{c}{.013}            
+  & \multicolumn{1}{c}{.061}            
+  & \multicolumn{1}{c}{.014}            
+  \\
+
+\multicolumn{2}{c}{CNN-GRU}  
+  & \multicolumn{1}{c}{.416}            
+  & \multicolumn{1}{c}{.409}            
+  & \multicolumn{1}{c}{.057}            
+  & \multicolumn{1}{c}{.049}            
+  & \multicolumn{1}{c}{.172}            
+  & \multicolumn{1}{c}{.166}            
+  & \multicolumn{1}{c}{.803}            
+  & \multicolumn{1}{c}{.801}            
+  & \multicolumn{1}{c}{.957}            
+  & \multicolumn{1}{c}{.954}            
+  & \multicolumn{1}{c}{.943}            
+  & \multicolumn{1}{c}{.942}            
+  & \multicolumn{1}{c}{.092}            
+  & \multicolumn{1}{c}{.064}            
+  & \multicolumn{1}{c}{.087}            
+  & \multicolumn{1}{c}{.063}            
+  \\
+
+\multicolumn{2}{c}{CNN-Trans v1}  
+  & \multicolumn{1}{c}{.333}            
+  & \multicolumn{1}{c}{.326}            
+  & \multicolumn{1}{c}{{\textbf{.067}}}   % Col5: max (.067 from CNN-Trans v1)
+  & \multicolumn{1}{c}{{\textbf{.060}}}   % Col6: max (.060 from CNN-Trans v1)
+  & \multicolumn{1}{c}{.046}            
+  & \multicolumn{1}{c}{.027}            
+  & \multicolumn{1}{c}{.752}            
+  & \multicolumn{1}{c}{.751}            
+  & \multicolumn{1}{c}{.948}            
+  & \multicolumn{1}{c}{.947}            
+  & \multicolumn{1}{c}{.945}            
+  & \multicolumn{1}{c}{.945}            
+  & \multicolumn{1}{c}{.106}            
+  & \multicolumn{1}{c}{.061}            
+  & \multicolumn{1}{c}{.100}            
+  & \multicolumn{1}{c}{.057}            
+  \\
+
+\multicolumn{2}{c}{CNN-Trans v2}  
+  & \multicolumn{1}{c}{.282}            
+  & \multicolumn{1}{c}{.268}            
+  & \multicolumn{1}{c}{.050}            
+  & \multicolumn{1}{c}{.045}            
+  & \multicolumn{1}{c}{.022}            
+  & \multicolumn{1}{c}{.010}            
+  & \multicolumn{1}{c}{.754}            
+  & \multicolumn{1}{c}{.752}            
+  & \multicolumn{1}{c}{.952}            
+  & \multicolumn{1}{c}{.950}            
+  & \multicolumn{1}{c}{.930}            
+  & \multicolumn{1}{c}{.930}            
+  & \multicolumn{1}{c}{.097}            
+  & \multicolumn{1}{c}{.050}            
+  & \multicolumn{1}{c}{.093}            
+  & \multicolumn{1}{c}{.059}            
+  \\
+\midrule
+
+\multicolumn{18}{c}{\textbf{\textit{Ratio of CNN and Transformer Layers in Hybrid Architectures}}} \\ 
+\midrule  
+\multicolumn{2}{c}{\textbf{CNN-Trans v1-4:1}} 
+  & \multicolumn{1}{c}{{\textbf{.333}}} 
+  & \multicolumn{1}{c}{{\textbf{.326}}} 
+  & \multicolumn{1}{c}{{\underline{.067}}}
+  & \multicolumn{1}{c}{{\textbf{.060}}} 
+  & \multicolumn{1}{c}{{\textbf{.046}}} 
+  & \multicolumn{1}{c}{{\textbf{.027}} }
+  & \multicolumn{1}{c}{{\textbf{.752}} }
+  & \multicolumn{1}{c}{{\textbf{.751}} }
+  & \multicolumn{1}{c}{{\textbf{.948}} }
+  & \multicolumn{1}{c}{{\textbf{.947}} }
+  & \multicolumn{1}{c}{{\textbf{.945}} }
+  & \multicolumn{1}{c}{{\textbf{.945}} }
+  & \multicolumn{1}{c}{{\textbf{.106}} }
+  & \multicolumn{1}{c}{{\textbf{.061}} }
+  & \multicolumn{1}{c}{{\textbf{.100}} }
+  & \multicolumn{1}{c}{{\textbf{.057}}} \\ 
+\multicolumn{2}{c}{CNN-Trans v1-3:2} 
+  & \multicolumn{1}{c}{{\underline{.115}}} 
+  & \multicolumn{1}{c}{{\underline{.091}}} 
+  & \multicolumn{1}{c}{{\textbf{.069}}} 
+  & \multicolumn{1}{c}{{\underline{.057}}} 
+  & \multicolumn{1}{c}{{\underline{.010}}} 
+  & \multicolumn{1}{c}{{\underline{.001}}} 
+  & \multicolumn{1}{c}{.696} 
+  & \multicolumn{1}{c}{.694} 
+  & \multicolumn{1}{c}{{\underline{.904}}} 
+  & \multicolumn{1}{c}{{\underline{.901}}} 
+  & \multicolumn{1}{c}{{\underline{.916}}}
+  & \multicolumn{1}{c}{{\underline{.914}}}
+  & \multicolumn{1}{c}{{\underline{.094}}}
+  & \multicolumn{1}{c}{{\underline{.036}}}
+  & \multicolumn{1}{c}{{\underline{.090}}}
+  & \multicolumn{1}{c}{{\underline{.041}}} \\ 
+\multicolumn{2}{c}{CNN-Trans v1-2:3} 
+  & \multicolumn{1}{c}{.060} 
+  & \multicolumn{1}{c}{.032} 
+  & \multicolumn{1}{c}{.041} 
+  & \multicolumn{1}{c}{.021} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.000} 
+  & \multicolumn{1}{c}{{\underline{.699}}} 
+  & \multicolumn{1}{c}{{\underline{.697}}} 
+  & \multicolumn{1}{c}{.833} 
+  & \multicolumn{1}{c}{.828} 
+  & \multicolumn{1}{c}{.867} 
+  & \multicolumn{1}{c}{.866} 
+  & \multicolumn{1}{c}{.088} 
+  & \multicolumn{1}{c}{.030} 
+  & \multicolumn{1}{c}{.085} 
+  & \multicolumn{1}{c}{.031} \\ 
+\multicolumn{2}{c}{CNN-Trans v1-1:4} 
+  & \multicolumn{1}{c}{.036} 
+  & \multicolumn{1}{c}{.013} 
+  & \multicolumn{1}{c}{.030} 
+  & \multicolumn{1}{c}{.008} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.000} 
+  & \multicolumn{1}{c}{.684} 
+  & \multicolumn{1}{c}{.674} 
+  & \multicolumn{1}{c}{.709} 
+  & \multicolumn{1}{c}{.687} 
+  & \multicolumn{1}{c}{.764} 
+  & \multicolumn{1}{c}{.760} 
+  & \multicolumn{1}{c}{.079} 
+  & \multicolumn{1}{c}{.018} 
+  & \multicolumn{1}{c}{.076} 
+  & \multicolumn{1}{c}{.019} \\ 
+\midrule
+
+\multicolumn{2}{c}{\textbf{CNN-Trans v2-4:1}} 
+  & \multicolumn{1}{c}{{\textbf{.282}}} 
+  & \multicolumn{1}{c}{{\textbf{.268}}} 
+  & \multicolumn{1}{c}{.050} 
+  & \multicolumn{1}{c}{.045} 
+  & \multicolumn{1}{c}{{\underline{.022}}} 
+  & \multicolumn{1}{c}{{\textbf{.010}}} 
+  & \multicolumn{1}{c}{{\textbf{.754}} }
+  & \multicolumn{1}{c}{{\textbf{.752}} }
+  & \multicolumn{1}{c}{{\textbf{.952}} }
+  & \multicolumn{1}{c}{{\textbf{.950}} }
+  & \multicolumn{1}{c}{{\textbf{.930}} }
+  & \multicolumn{1}{c}{{\textbf{.930}} }
+  & \multicolumn{1}{c}{{\textbf{.097}} }
+  & \multicolumn{1}{c}{.{\underline{050}}} 
+  & \multicolumn{1}{c}{{\textbf{.093}}} 
+  & \multicolumn{1}{c}{{\textbf{.059}}} \\ 
+\multicolumn{2}{c}{CNN-Trans v2-3:2} 
+  & \multicolumn{1}{c}{{\underline{.211}}} 
+  & \multicolumn{1}{c}{{\underline{.192}}} 
+  & \multicolumn{1}{c}{{\textbf{.061}}} 
+  & \multicolumn{1}{c}{{\textbf{.054}}} 
+  & \multicolumn{1}{c}{{\textbf{.024}}} 
+  & \multicolumn{1}{c}{{\underline{.009}}} 
+  & \multicolumn{1}{c}{.719} 
+  & \multicolumn{1}{c}{.713} 
+  & \multicolumn{1}{c}{{\underline{.946}}} 
+  & \multicolumn{1}{c}{{\underline{.944}}} 
+  & \multicolumn{1}{c}{.882} 
+  & \multicolumn{1}{c}{.880} 
+  & \multicolumn{1}{c}{.097}
+  & \multicolumn{1}{c}{{\textbf{.057}}} 
+  & \multicolumn{1}{c}{.087} 
+  & \multicolumn{1}{c}{{\underline{.051}}} \\ 
+\multicolumn{2}{c}{CNN-Trans v2-2:3} 
+  & \multicolumn{1}{c}{.141} 
+  & \multicolumn{1}{c}{.124} 
+  & \multicolumn{1}{c}{{\underline{.059}}} 
+  & \multicolumn{1}{c}{{\underline{.046}}} 
+  & \multicolumn{1}{c}{.011} 
+  & \multicolumn{1}{c}{.002} 
+  & \multicolumn{1}{c}{.710} 
+  & \multicolumn{1}{c}{.707} 
+  & \multicolumn{1}{c}{.882} 
+  & \multicolumn{1}{c}{.881} 
+  & \multicolumn{1}{c}{{\underline{.893}}} 
+  & \multicolumn{1}{c}{{\underline{.892}}} 
+  & \multicolumn{1}{c}{.088} 
+  & \multicolumn{1}{c}{.050} 
+  & \multicolumn{1}{c}{{\underline{.092}}} 
+  & \multicolumn{1}{c}{.044} \\ 
+\multicolumn{2}{c}{CNN-Trans v2-1:4} 
+  & \multicolumn{1}{c}{.047} 
+  & \multicolumn{1}{c}{.033} 
+  & \multicolumn{1}{c}{.035} 
+  & \multicolumn{1}{c}{.019} 
+  & \multicolumn{1}{c}{.008} 
+  & \multicolumn{1}{c}{.001} 
+  & \multicolumn{1}{c}{{\underline{.722}}} 
+  & \multicolumn{1}{c}{{\underline{.720}}} 
+  & \multicolumn{1}{c}{.822} 
+  & \multicolumn{1}{c}{.814} 
+  & \multicolumn{1}{c}{.839} 
+  & \multicolumn{1}{c}{.837} 
+  & \multicolumn{1}{c}{{\underline{.094}}} 
+  & \multicolumn{1}{c}{.047} 
+  & \multicolumn{1}{c}{.084} 
+  & \multicolumn{1}{c}{.041} \\ 
+\midrule
+
+\multicolumn{18}{c}{\textbf{\textit{New Patch Method for Transformers and GRUs}}} \\ 
+\midrule
+\multicolumn{2}{c}{Transformer}      
+  & \multicolumn{1}{c}{.085} 
+  & \multicolumn{1}{c}{.080} 
+  & \multicolumn{1}{c}{{\textbf{.042}}} 
+  & \multicolumn{1}{c}{{\underline{.028}}} 
+  & \multicolumn{1}{c}{{\underline{.005}}} 
+  & \multicolumn{1}{c}{{\underline{.000}}} 
+  & \multicolumn{1}{c}{.795} 
+  & \multicolumn{1}{c}{.794} 
+  & \multicolumn{1}{c}{{\textbf{.953}}} 
+  & \multicolumn{1}{c}{{\textbf{.952}}} 
+  & \multicolumn{1}{c}{{\textbf{.911}}} 
+  & \multicolumn{1}{c}{{\textbf{.910}}} 
+  & \multicolumn{1}{c}{{\underline{.069}}} 
+  & \multicolumn{1}{c}{{\underline{.015}}} 
+  & \multicolumn{1}{c}{.057} 
+  & \multicolumn{1}{c}{.012} \\ 
+
+\multicolumn{2}{c}{PatchTST}     
+  & \multicolumn{1}{c}{.060} 
+  & \multicolumn{1}{c}{.051} 
+  & \multicolumn{1}{c}{{\underline{.038}}} 
+  & \multicolumn{1}{c}{{\textbf{.029}}} 
+  & \multicolumn{1}{c}{{\textbf{.006}}} 
+  & \multicolumn{1}{c}{{\textbf{.001}}} 
+  & \multicolumn{1}{c}{{\textbf{.845}}} 
+  & \multicolumn{1}{c}{{\textbf{.838}}} 
+  & \multicolumn{1}{c}{.906} 
+  & \multicolumn{1}{c}{.904} 
+  & \multicolumn{1}{c}{.766} 
+  & \multicolumn{1}{c}{.760} 
+  & \multicolumn{1}{c}{.050} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.050} 
+  & \multicolumn{1}{c}{.005} \\ 
+
+\multicolumn{2}{c}{iTransformer} 
+  & \multicolumn{1}{c}{{\underline{.097}}} 
+  & \multicolumn{1}{c}{{\underline{.085}}} 
+  & \multicolumn{1}{c}{.029} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.000} 
+  & \multicolumn{1}{c}{.730} 
+  & \multicolumn{1}{c}{.728} 
+  & \multicolumn{1}{c}{.729} 
+  & \multicolumn{1}{c}{.698} 
+  & \multicolumn{1}{c}{.780} 
+  & \multicolumn{1}{c}{.774} 
+  & \multicolumn{1}{c}{.064} 
+  & \multicolumn{1}{c}{.013} 
+  & \multicolumn{1}{c}{{\underline{.061}}} 
+  & \multicolumn{1}{c}{{\underline{.014}}} \\ 
+
+\multicolumn{2}{c}{\textbf{Ours}}         
+  & \multicolumn{1}{c}{{\textbf{.234}}} 
+  & \multicolumn{1}{c}{{\textbf{.226}}} 
+  & \multicolumn{1}{c}{.033} 
+  & \multicolumn{1}{c}{.027} 
+  & \multicolumn{1}{c}{.005} 
+  & \multicolumn{1}{c}{.000} 
+  & \multicolumn{1}{c}{{\underline{.799}}} 
+  & \multicolumn{1}{c}{{\underline{.799}}}
+  & \multicolumn{1}{c}{{\underline{.922}}} 
+  & \multicolumn{1}{c}{{\underline{.919}}} 
+  & \multicolumn{1}{c}{{\underline{.843}}} 
+  & \multicolumn{1}{c}{{\underline{.839}}} 
+  & \multicolumn{1}{c}{{\textbf{.098}}} 
+  & \multicolumn{1}{c}{{\textbf{.046}}} 
+  & \multicolumn{1}{c}{{\textbf{.090}}} 
+  & \multicolumn{1}{c}{{\textbf{.066}}} \\ 
+\midrule
+
+
+\multicolumn{2}{c}{GRU}      
+  & \multicolumn{1}{c}{{\textbf{.353}}} % Col1: max = .353 vs .351
+  & \multicolumn{1}{c}{{\textbf{.343}}} % Col2: max = .343 vs .342
+  & \multicolumn{1}{c}{.025}         % Col3: max = .033 (Ours)
+  & \multicolumn{1}{c}{.001}         % Col4: max = .026 (Ours)
+  & \multicolumn{1}{c}{.040}         % Col5: max = .074 (Ours)
+  & \multicolumn{1}{c}{.037}         % Col6: max = .068 (Ours)
+  & \multicolumn{1}{c}{.774}         % Col7: max = .817 (Ours)
+  & \multicolumn{1}{c}{.773}         % Col8: max = .813 (Ours)
+  & \multicolumn{1}{c}{.146}         % Col9: max = .958 (Ours)
+  & \multicolumn{1}{c}{.046}         % Col10: max = .956 (Ours)
+  & \multicolumn{1}{c}{.136}         % Col11: max = .937 (Ours)
+  & \multicolumn{1}{c}{.039}         % Col12: max = .936 (Ours)
+  & \multicolumn{1}{c}{{\textbf{.123}}} % Col13: max = .123 vs .105
+  & \multicolumn{1}{c}{{\textbf{.091}}} % Col14: max = .091 vs .071
+  & \multicolumn{1}{c}{{\textbf{.117}}} % Col15: max = .117 vs .091
+  & \multicolumn{1}{c}{{\textbf{.086}}} % Col16: max = .086 vs .066
+  \\
+\multicolumn{2}{c}{\textbf{Ours}} 
+  & \multicolumn{1}{c}{.351}         
+  & \multicolumn{1}{c}{.342}         
+  & \multicolumn{1}{c}{{\textbf{.033}}} % Col3: max = .033
+  & \multicolumn{1}{c}{{\textbf{.026}}} % Col4: max = .026
+  & \multicolumn{1}{c}{{\textbf{.074}}} % Col5: max = .074
+  & \multicolumn{1}{c}{{\textbf{.068}}} % Col6: max = .068
+  & \multicolumn{1}{c}{{\textbf{.817}}} % Col7: max = .817
+  & \multicolumn{1}{c}{{\textbf{.813}}} % Col8: max = .813
+  & \multicolumn{1}{c}{{\textbf{.958}}} % Col9: max = .958
+  & \multicolumn{1}{c}{{\textbf{.956}}} % Col10: max = .956
+  & \multicolumn{1}{c}{{\textbf{.937}}} % Col11: max = .937
+  & \multicolumn{1}{c}{{\textbf{.936}}} % Col12: max = .936
+  & \multicolumn{1}{c}{.105}         
+  & \multicolumn{1}{c}{.071}         
+  & \multicolumn{1}{c}{.091}         
+  & \multicolumn{1}{c}{.066}         
+  \\ 
+\bottomrule
+\end{tabular}}
+\end{table*}

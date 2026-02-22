@@ -1,0 +1,23 @@
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Overview of the datasets used in our experiments.} We evaluate on six datasets in total. For \emph{Chisco} and \emph{OpenMIIR}, we partition them by task, yielding eight distinct tasks overall.}
+
+\label{tab:Table.1}
+\footnotesize
+\begin{tabular}{ccccccccc}
+\toprule
+Categories                & Datasets     & Tasks              & Signal Type
+\\ \midrule
+\multirow{3}{*}{Speech}   & Du-IN~\citep{Zheng_2024_Du-IN}         & Loud Reading       & SEEG       \\
+                          & Chisco-R~\citep{Zhang_2024_Chisco}     & Silent Reading     & EEG        \\
+                          & Chisco-I~\citep{Zhang_2024_Chisco}     & Speech Imagination & EEG         \\
+\midrule
+\multirow{3}{*}{Visual}   & FacesHouses~\citep{Miller_2019_library}  & Binary Image Decoding     & ECoG        \\
+                          & ThingsEEG~\citep{gifford2022large}    & Multi-Class Image Decoding     & EEG        \\
+                          & SEED-DV~\citep{Liu_2024_EEG2video}      & Video Decoding     & EEG          \\
+\midrule
+\multirow{2}{*}{Auditory} & OpenMIIR-P~\citep{Stober_2015_music}   & Music Perception   & EEG        \\
+                          & OpenMIIR-I~\citep{{Stober_2015_music}}   & Music Imagination  & EEG        \\
+\bottomrule
+\end{tabular}
+\end{table}
