@@ -25,6 +25,27 @@ def _cell_to_latex(cell: Cell) -> str:
     else:
         text = latex_escape(str(val))
 
+    # Rich segments: per-segment color/bold/italic/underline
+    if cell.rich_segments and not cell.style.raw_latex:
+        parts = []
+        for seg in cell.rich_segments:
+            seg_text, seg_color = seg[0], seg[1]
+            seg_bold = seg[2] if len(seg) > 2 else False
+            seg_italic = seg[3] if len(seg) > 3 else False
+            seg_underline = seg[4] if len(seg) > 4 else False
+            s = latex_escape(seg_text)
+            if seg_bold:
+                s = f"\\textbf{{{s}}}"
+            if seg_italic:
+                s = f"\\textit{{{s}}}"
+            if seg_underline:
+                s = f"\\underline{{{s}}}"
+            if seg_color:
+                rgb = hex_to_latex_color(seg_color)
+                s = f"\\textcolor[RGB]{{{rgb}}}{{{s}}}"
+            parts.append(s)
+        text = "".join(parts)
+
     # Multi-line cell: convert \n back to \makecell{...\\...}
     if "\n" in text:
         text = "\\makecell{" + text.replace("\n", "\\\\") + "}"
@@ -35,7 +56,7 @@ def _cell_to_latex(cell: Cell) -> str:
         text = f"\\diagbox{{{parts[0]}}}{{{parts[1]}}}"
 
     # Apply styling (skip if raw_latex — user controls formatting)
-    if not cell.style.raw_latex:
+    if not cell.style.raw_latex and not cell.rich_segments:
         if cell.style.bold:
             text = f"\\textbf{{{text}}}"
         if cell.style.italic:
@@ -45,16 +66,24 @@ def _cell_to_latex(cell: Cell) -> str:
         if cell.style.color:
             rgb = hex_to_latex_color(cell.style.color)
             text = f"\\textcolor[RGB]{{{rgb}}}{{{text}}}"
+    if not cell.style.raw_latex:
+        if cell.style.rotation:
+            if cell.rowspan > 1:
+                # No [origin=c] for multirow: text extends upward, avoiding bottomrule overflow
+                text = f"\\rotatebox{{{cell.style.rotation}}}{{{text}}}"
+            else:
+                text = f"\\rotatebox[origin=c]{{{cell.style.rotation}}}{{{text}}}"
     if cell.rowspan > 1:
         text = f"\\multirow{{{cell.rowspan}}}{{*}}{{{text}}}"
-    if cell.colspan > 1:
-        align = cell.style.alignment[0] if cell.style.alignment else "c"
-        text = f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}"
 
-    # cellcolor must be OUTSIDE multirow/multicolumn to color the full cell
+    # cellcolor: inside multicolumn to color full span, outside multirow
     if not cell.style.raw_latex and cell.style.bg_color:
         rgb = hex_to_latex_color(cell.style.bg_color)
         text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
+
+    if cell.colspan > 1:
+        align = cell.style.alignment[0] if cell.style.alignment else "c"
+        text = f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}"
 
     return text
 
@@ -73,21 +102,33 @@ def _build_col_spec(table: TableData, theme_config: ThemeConfig) -> str:
     return "".join(specs)
 
 
-def _auto_cmidrule(header_row_cells: list[Cell], num_cols: int) -> Optional[str]:
-    """Auto-generate cmidrule from multicolumn cells in a header row."""
+def _auto_cmidrule(table_cells: list[list[Cell]], row_idx: int, num_cols: int) -> Optional[str]:
+    """Auto-generate cline between row_idx and row_idx+1, skipping multirow cells."""
+    skip_cols: set[int] = set()
+    for r in range(row_idx + 1):
+        for i, cell in enumerate(table_cells[r]):
+            col = i + 1
+            if cell.rowspan > 1 and r + cell.rowspan > row_idx + 1:
+                span = max(cell.colspan, 1)
+                for c in range(col, col + span):
+                    skip_cols.add(c)
+
+    if len(skip_cols) >= num_cols:
+        return None
+
     rules = []
-    col = 1
-    skip = 0
-    for cell in header_row_cells:
-        if skip > 0:
-            skip -= 1
-            continue
-        span = cell.colspan if cell.colspan > 1 else 1
-        if span > 1:
-            skip = span - 1
-            if span < num_cols and cell.rowspan <= 1:
-                rules.append(f"\\cline{{{col}-{col + span - 1}}}")
-        col += 1 if span == 1 else span
+    start = None
+    for c in range(1, num_cols + 1):
+        if c not in skip_cols:
+            if start is None:
+                start = c
+        else:
+            if start is not None:
+                rules.append(f"\\cline{{{start}-{c - 1}}}")
+                start = None
+    if start is not None:
+        rules.append(f"\\cline{{{start}-{num_cols}}}")
+
     return " ".join(rules) if rules else None
 
 
@@ -110,6 +151,7 @@ def render(
     resizebox: Optional[str] = None,
     col_spec: Optional[str] = None,
     header_sep: Optional[str] = None,
+    header_cmidrule: bool = True,
     wide: bool = False,
     span_columns: Optional[bool] = None,
 ) -> str:
@@ -208,13 +250,13 @@ def render(
             if i < len(raw_header_rows) - 1:
                 header_rows.append(header_sep[i])
         final_header_sep = header_sep[-1]
-    elif header_sep is None and table.header_rows > 1:
+    elif header_sep is None and table.header_rows > 1 and header_cmidrule:
         # Auto-generate cmidrule between header rows from merged cells
         header_rows = []
         for i, row in enumerate(raw_header_rows):
             header_rows.append(row)
             if i < len(raw_header_rows) - 1:
-                rule = _auto_cmidrule(table.cells[i], table.num_cols)
+                rule = _auto_cmidrule(table.cells, i, table.num_cols)
                 if rule:
                     header_rows.append(rule)
     else:
@@ -229,12 +271,16 @@ def render(
     body_cells = table.cells[table.header_rows:]
     body_rows_with_seps: list[Union[list[str], str]] = []
     for i, row in enumerate(body_rows):
-        # Auto-detect section row: single cell spanning all columns
-        is_section = (
-            i < len(body_cells)
-            and body_cells[i]
-            and body_cells[i][0].colspan >= table.num_cols
-        )
+        # Auto-detect section row: first cell spans most columns, rest empty
+        is_section = False
+        if i < len(body_cells) and body_cells[i]:
+            c0 = body_cells[i][0]
+            if c0.colspan >= table.num_cols:
+                is_section = True
+            elif c0.colspan >= table.num_cols - 1 and all(
+                not c.value and c.value != 0 for c in body_cells[i][1:]
+            ):
+                is_section = True
         if is_section and i > 0:
             body_rows_with_seps.append("\\midrule")
         body_rows_with_seps.append(row)
@@ -293,6 +339,7 @@ def render_to_file(
     resizebox: Optional[str] = None,
     col_spec: Optional[str] = None,
     header_sep: Optional[str] = None,
+    header_cmidrule: bool = True,
     wide: bool = False,
     span_columns: Optional[bool] = None,
 ) -> Path:
@@ -302,7 +349,8 @@ def render_to_file(
         table, theme=theme, caption=caption, label=label,
         position=position, spacing=spacing,
         font_size=font_size, resizebox=resizebox, col_spec=col_spec,
-        header_sep=header_sep, wide=wide, span_columns=span_columns,
+        header_sep=header_sep, header_cmidrule=header_cmidrule,
+        wide=wide, span_columns=span_columns,
     )
     output.write_text(tex)
     return output

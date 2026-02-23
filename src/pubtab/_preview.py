@@ -20,7 +20,8 @@ PUBTAB_HOME = Path.home() / ".pubtab"
 TEXLIVE_DIR = PUBTAB_HOME / "TinyTeX"
 
 _REQUIRED_PACKAGES = ["booktabs", "multirow", "xcolor", "standalone",
-                      "adjustbox", "collectbox", "currfile", "gincltex"]
+                      "adjustbox", "collectbox", "currfile", "gincltex",
+                      "amsfonts", "pifont"]
 
 
 def _get_tinytex_bin_dir() -> Optional[Path]:

@@ -6,6 +6,9 @@ packages:
   - xcolor
   - diagbox
   - makecell
+  - adjustbox
+  - amssymb
+  - pifont
 column_sep: "1em"
 font_size: null
 caption_position: top

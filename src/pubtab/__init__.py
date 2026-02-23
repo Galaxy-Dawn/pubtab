@@ -30,6 +30,7 @@ def convert(
     resizebox: Optional[str] = _UNSET,
     col_spec: Optional[str] = _UNSET,
     header_sep: Optional[str] = _UNSET,
+    header_cmidrule: bool = _UNSET,
     span_columns: bool = _UNSET,
     custom_header: Optional[List[List[Cell]]] = _UNSET,
     group_separators: Optional[Union[List[int], Dict[int, str]]] = _UNSET,
@@ -78,7 +79,7 @@ def convert(
         sheet=None, theme="three_line", caption=None, label=None,
         header_rows=None, position="htbp", spacing=None,
         font_size=None, resizebox=None, col_spec=None, header_sep=None,
-        span_columns=False, custom_header=None, group_separators=None,
+        header_cmidrule=True, span_columns=False, custom_header=None, group_separators=None,
         cell_formatter=None, num_cols=None, preview=False, preamble=None,
         dpi=300,
     )
@@ -97,7 +98,8 @@ def convert(
         sheet=sheet, theme=theme, caption=caption, label=label,
         header_rows=header_rows, position=position,
         spacing=spacing, font_size=font_size, resizebox=resizebox,
-        col_spec=col_spec, header_sep=header_sep, span_columns=_span,
+        col_spec=col_spec, header_sep=header_sep, header_cmidrule=header_cmidrule,
+        span_columns=_span,
         custom_header=custom_header,
         group_separators=group_separators,
         cell_formatter=cell_formatter, num_cols=num_cols, preview=preview,
@@ -135,7 +137,8 @@ def convert(
         table, theme=p["theme"], caption=p["caption"], label=p["label"],
         position=p["position"], spacing=p["spacing"],
         font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
-        header_sep=p["header_sep"], span_columns=p["span_columns"],
+        header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
+        span_columns=p["span_columns"],
     )
     Path(output).write_text(tex)
 

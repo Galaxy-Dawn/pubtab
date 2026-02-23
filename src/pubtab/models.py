@@ -31,6 +31,7 @@ class Cell:
     style: CellStyle = field(default_factory=CellStyle)
     rowspan: int = 1
     colspan: int = 1
+    rich_segments: Optional[tuple] = None  # ((text, color_hex_or_None, bold, italic, underline), ...)
 
 
 @dataclass(frozen=True)

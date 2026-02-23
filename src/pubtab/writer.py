@@ -8,50 +8,11 @@ from typing import Union
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.rich_text import InlineFont
 
 from .models import TableData
-
-# Standard LaTeX/xcolor named colors → RGB hex
-_LATEX_COLORS = {
-    "red": "FF0000", "blue": "0000FF", "green": "008000", "black": "000000",
-    "white": "FFFFFF", "gray": "808080", "grey": "808080", "cyan": "00FFFF",
-    "magenta": "FF00FF", "yellow": "FFFF00", "orange": "FF8000",
-    "purple": "800080", "brown": "804000", "violet": "8000FF",
-    "pink": "FFC0CB", "lime": "00FF00", "olive": "808000", "teal": "008080",
-    "darkgray": "404040", "lightgray": "C0C0C0",
-}
-
-
-def _latex_color_to_hex(color: str) -> str | None:
-    """Convert LaTeX color spec to 6-digit RGB hex (no '#' prefix).
-
-    Supports: named colors, xcolor mixing (e.g. 'gray!20'), hex codes.
-    """
-    color = color.strip()
-    if not color:
-        return None
-    # Already hex: #RRGGBB or RRGGBB
-    if color.startswith("#"):
-        return color[1:].upper()
-    if len(color) == 6 and all(c in "0123456789abcdefABCDEF" for c in color):
-        return color.upper()
-    # xcolor mixing: "color!percent" (e.g. gray!20 = 20% gray + 80% white)
-    if "!" in color:
-        parts = color.split("!")
-        base = _LATEX_COLORS.get(parts[0].lower())
-        if base and len(parts) >= 2:
-            try:
-                pct = float(parts[1]) / 100.0
-            except ValueError:
-                return None
-            br, bg, bb = int(base[0:2], 16), int(base[2:4], 16), int(base[4:6], 16)
-            r = int(br * pct + 255 * (1 - pct))
-            g = int(bg * pct + 255 * (1 - pct))
-            b = int(bb * pct + 255 * (1 - pct))
-            return f"{r:02X}{g:02X}{b:02X}"
-        return None
-    # Named color
-    return _LATEX_COLORS.get(color.lower())
+from .utils import _latex_color_to_hex
 
 
 def write_excel(table: TableData, output: Union[str, Path]) -> Path:
@@ -84,31 +45,48 @@ def write_excel(table: TableData, output: Union[str, Path]) -> Path:
                 merged.discard((r, c))
 
             # Determine value
-            if cell.style.diagbox:
+            if cell.rich_segments:
+                rt = CellRichText()
+                for seg in cell.rich_segments:
+                    seg_text, seg_color = seg[0], seg[1]
+                    seg_bold = seg[2] if len(seg) > 2 else cell.style.bold
+                    seg_italic = seg[3] if len(seg) > 3 else cell.style.italic
+                    seg_underline = seg[4] if len(seg) > 4 else cell.style.underline
+                    ifont = InlineFont(
+                        b=seg_bold or None,
+                        i=seg_italic or None,
+                        u="single" if seg_underline else None,
+                        color="FF" + seg_color.lstrip("#") if seg_color else None,
+                    )
+                    rt.append(TextBlock(ifont, seg_text))
+                val = rt
+            elif cell.style.diagbox:
                 val = " / ".join(cell.style.diagbox)
             else:
                 val = cell.value if cell.value != "" else None
 
             ws.cell(row=excel_row, column=excel_col, value=val)
 
-            # Font styling (with optional text color)
-            font_kwargs = dict(
-                bold=cell.style.bold,
-                italic=cell.style.italic,
-                underline="single" if cell.style.underline else None,
-            )
-            if cell.style.color:
-                hex_color = _latex_color_to_hex(cell.style.color)
-                if hex_color:
-                    font_kwargs["color"] = hex_color
-            ws.cell(row=excel_row, column=excel_col).font = Font(**font_kwargs)
+            # Font styling (skip for rich text cells)
+            if not cell.rich_segments:
+                font_kwargs = dict(
+                    bold=cell.style.bold,
+                    italic=cell.style.italic,
+                    underline="single" if cell.style.underline else None,
+                )
+                if cell.style.color:
+                    hex_color = _latex_color_to_hex(cell.style.color)
+                    if hex_color:
+                        font_kwargs["color"] = hex_color.lstrip("#")
+                ws.cell(row=excel_row, column=excel_col).font = Font(**font_kwargs)
 
             # Background color
             if cell.style.bg_color:
                 hex_bg = _latex_color_to_hex(cell.style.bg_color)
                 if hex_bg:
+                    bg_val = hex_bg.lstrip("#")
                     ws.cell(row=excel_row, column=excel_col).fill = PatternFill(
-                        start_color=hex_bg, end_color=hex_bg, fill_type="solid",
+                        start_color=bg_val, end_color=bg_val, fill_type="solid",
                     )
 
             # Alignment (wrap_text for multi-line cells, rotation for rotatebox)

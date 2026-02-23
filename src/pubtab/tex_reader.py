@@ -3,23 +3,192 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .models import Cell, CellStyle, TableData
+from .utils import _latex_color_to_hex
+
+# Module-level custom color registry (populated by read_tex per call)
+_custom_colors: Dict[str, str] = {}
 
 
-def read_tex(tex: str) -> TableData:
+def _normalize_color(raw: str, spec: str = "") -> str | None:
+    """Normalize a LaTeX color to '#RRGGBB' hex.
+
+    Args:
+        raw: Color value (name, hex, 'gray!20', '229,229,229').
+        spec: Optional color model spec like 'RGB' or 'HTML'.
+    """
+    spec_upper = spec.strip("[]").upper()
+    spec_raw = spec.strip("[]")
+    if spec_upper == "RGB":
+        parts = raw.split(",")
+        if len(parts) == 3:
+            try:
+                if spec_raw == "rgb":
+                    # Float 0.0-1.0
+                    r, g, b = (min(255, round(float(p) * 255)) for p in parts)
+                else:
+                    # Integer 0-255
+                    r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+                return f"#{r:02X}{g:02X}{b:02X}"
+            except ValueError:
+                pass
+    if spec_upper == "GRAY":
+        try:
+            v = min(255, round(float(raw.strip()) * 255))
+            return f"#{v:02X}{v:02X}{v:02X}"
+        except ValueError:
+            pass
+    if spec == "HTML":
+        raw = raw.strip()
+        if len(raw) == 6:
+            return f"#{raw.upper()}"
+    return _custom_colors.get(raw.strip()) or _latex_color_to_hex(raw)
+
+
+def _trim_trailing_empty_cols(rows: List[List[Cell]], num_cols: int) -> int:
+    """Remove trailing columns that are empty in all rows.
+
+    A column is "used" if a non-empty cell starts there, or a non-full-width
+    colspan from an earlier column covers it.
+    """
+    while num_cols > 1:
+        col = num_cols - 1
+        col_used = False
+        for row in rows:
+            pos = 0
+            for cell in row:
+                end = pos + cell.colspan
+                if pos <= col < end and cell.value not in ("", None):
+                    # Full-width span doesn't count
+                    if cell.colspan < num_cols:
+                        col_used = True
+                        break
+                pos = end
+                if pos > col:
+                    break
+            if col_used:
+                break
+        if col_used:
+            break
+        for row in rows:
+            if len(row) > col:
+                row.pop(col)
+            for i, cell in enumerate(row):
+                if cell.colspan >= num_cols:
+                    row[i] = Cell(value=cell.value, style=cell.style,
+                                  rowspan=cell.rowspan, colspan=num_cols - 1,
+                                  rich_segments=cell.rich_segments)
+        num_cols -= 1
+    return num_cols
+
+
+def _merge_visual_multirow(rows: List[List[Cell]], header_rows: int, hline_before: List[bool]) -> None:
+    """Merge visual multirow patterns in first column.
+
+    For each non-empty cell in column A (after header), expands it to cover
+    adjacent empty cells with the same bg_color. Stops at \\hline boundaries.
+
+    This handles LaTeX tables that use visual positioning (placing label in
+    middle row) instead of explicit \\multirow commands.
+    """
+    if len(rows) <= header_rows + 1:
+        return
+
+    num_rows = len(rows)
+
+    # Find non-empty cells in column A after header
+    for r in range(header_rows, num_rows):
+        cell = rows[r][0]
+        if not cell.value or cell.rowspan > 1:
+            continue
+
+        bg_color = cell.style.bg_color
+        if not bg_color:
+            continue
+
+        # Expand upward (stop at header or hline)
+        top = r
+        while top > header_rows:
+            # Stop if there's an hline before the row above
+            if hline_before[top]:
+                break
+            above = rows[top - 1][0]
+            if above.value or above.style.bg_color != bg_color:
+                break
+            top -= 1
+
+        # Expand downward (stop at hline)
+        bottom = r
+        while bottom < num_rows - 1:
+            below = rows[bottom + 1][0]
+            if below.value or below.style.bg_color != bg_color:
+                break
+            # Stop if there's an hline before the next row
+            if bottom + 1 < len(hline_before) and hline_before[bottom + 1]:
+                break
+            bottom += 1
+
+        # If we found rows to merge
+        span = bottom - top + 1
+        if span > 1:
+            # Move label to top row
+            rows[top][0] = Cell(
+                value=cell.value,
+                style=cell.style,
+                rowspan=span,
+                colspan=cell.colspan,
+            )
+            # Clear the original position if different from top
+            if top != r:
+                rows[r][0] = Cell(value="", style=CellStyle())
+            # Clear other rows in the span
+            for clear_r in range(top + 1, bottom + 1):
+                rows[clear_r][0] = Cell(value="", style=CellStyle())
+
+
+def read_tex(
+    tex: str,
+    newcommands: Optional[Dict[str, Tuple[int, str]]] = None,
+    definecolors: Optional[Dict[str, str]] = None,
+    rowcolors: Optional[Tuple[int, str, str]] = None,
+) -> TableData:
     """Parse a LaTeX table string into TableData.
 
     Handles: multicolumn, multirow, textbf, textit, underline, diagbox.
     """
+    global _custom_colors
+    # Populate custom color registry for this parse
+    _custom_colors = _parse_definecolors(_strip_comments(tex))
+    if definecolors:
+        _custom_colors.update(definecolors)
+    # Expand \newcommand definitions
+    cmds = _parse_newcommands(_strip_comments(tex))
+    if newcommands:
+        cmds.update(newcommands)
+    if cmds:
+        tex = _expand_newcommands(tex, cmds)
     # Extract tabular body
     body = _extract_tabular_body(tex)
     if body is None:
         raise ValueError("No tabular environment found")
 
-    # Split into rows (by \\), filter out rules
-    raw_rows = _split_rows(body)
+    # Strip \iffalse...\fi blocks before row splitting (they can span multiple rows)
+    body = re.sub(r"\\iffalse\b.*?\\fi\b\s*", "", body, flags=re.DOTALL)
+
+    # Replace nested \begin{tabular}...\end{tabular} with \makecell{...}
+    # so the \\ inside doesn't get treated as a row separator
+    body = re.sub(
+        rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}(.*?)\\end\{{tabular\}}",
+        lambda m: r"\makecell{" + m.group(2).strip() + "}",
+        body, flags=re.DOTALL,
+    )
+
+    # Split into rows (by \\), filter out rules, track hline positions
+    raw_rows_with_hline = _split_rows_with_hline(body)
+    raw_rows = [r for r, _ in raw_rows_with_hline]
+    hline_before = [h for _, h in raw_rows_with_hline]
 
     # Parse each row into cells
     parsed_rows: List[List[Cell]] = []
@@ -37,7 +206,9 @@ def read_tex(tex: str) -> TableData:
 
     # Expand rows to full width with placeholder cells
     expanded = []
+    parsed_cell_counts = []  # original cell count per row (before expansion)
     for row in parsed_rows:
+        parsed_cell_counts.append(len(row))
         full_row = _expand_row(row, num_cols)
         expanded.append(full_row)
 
@@ -53,6 +224,32 @@ def read_tex(tex: str) -> TableData:
                         rowspan=span, colspan=cell.colspan,
                     )
                     expanded[r][c] = Cell(value="", style=CellStyle())
+
+    # Apply \rowcolors alternating background to rows without explicit bg_color
+    if rowcolors:
+        rc_start, rc_color1, rc_color2 = rowcolors
+        hex1 = _normalize_color(rc_color1)
+        hex2 = _normalize_color(rc_color2)
+        for r, row in enumerate(expanded):
+            row_num = r + 1  # 1-based
+            if row_num < rc_start:
+                continue
+            bg = hex1 if (row_num - rc_start) % 2 == 0 else hex2
+            if not bg:
+                continue
+            for c, cell in enumerate(row):
+                if not cell.style.bg_color:
+                    expanded[r][c] = Cell(
+                        value=cell.value,
+                        style=CellStyle(
+                            bold=cell.style.bold, italic=cell.style.italic,
+                            underline=cell.style.underline, color=cell.style.color,
+                            bg_color=bg, alignment=cell.style.alignment,
+                            fmt=cell.style.fmt, diagbox=cell.style.diagbox,
+                            rotation=cell.style.rotation,
+                        ),
+                        rowspan=cell.rowspan, colspan=cell.colspan,
+                    )
 
     # Detect header rows (rows before first data-like row)
     header_rows = _detect_header_rows(expanded, num_cols)
@@ -86,6 +283,25 @@ def read_tex(tex: str) -> TableData:
                         rowspan=header_rows, colspan=1,
                     )
 
+    # Expand section header rows (string content in first cell, rest empty) to full width
+    # Only if the row was parsed as a single cell (no & separators) — rows with multiple
+    # parsed cells are data rows with empty trailing values, not section headers.
+    for i, row in enumerate(expanded):
+        c0 = row[0]
+        if (parsed_cell_counts[i] == 1
+                and isinstance(c0.value, str) and c0.value
+                and c0.colspan < num_cols
+                and all(not c.value and c.value != 0 for c in row[1:])):
+            row[0] = Cell(value=c0.value, style=c0.style,
+                          rowspan=c0.rowspan, colspan=num_cols)
+
+    # Merge visual multirow patterns in first column (e.g., topology labels spanning multiple rows)
+    # Detect groups of consecutive rows with same bg_color in column A, with one label in the group
+    _merge_visual_multirow(expanded, header_rows, hline_before)
+
+    # Trim trailing empty columns (e.g., colspec has 14 cols but data only uses 7)
+    num_cols = _trim_trailing_empty_cols(expanded, num_cols)
+
     return TableData(
         cells=expanded,
         num_rows=len(expanded),
@@ -97,6 +313,95 @@ def read_tex(tex: str) -> TableData:
 def _strip_comments(tex: str) -> str:
     """Remove LaTeX % comments (but not escaped \\%)."""
     return re.sub(r"(?<!\\)%[^\n]*", "", tex)
+
+
+def _parse_definecolors(tex: str) -> Dict[str, str]:
+    """Parse \\definecolor definitions from tex, return {name: '#RRGGBB'}."""
+    colors: Dict[str, str] = {}
+    for m in re.finditer(r"\\definecolor\{([^}]+)\}\{([^}]+)\}\{([^}]+)\}", tex):
+        name, model, spec = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+        hex_color = _normalize_color(spec, f"[{model}]")
+        if hex_color:
+            colors[name] = hex_color
+    return colors
+
+
+def parse_definecolors(tex: str) -> Dict[str, str]:
+    """Extract \\definecolor definitions from a full .tex file (public API)."""
+    return _parse_definecolors(_strip_comments(tex))
+
+
+def parse_definecolors_before(tex: str, pos: int) -> Dict[str, str]:
+    """Extract \\definecolor definitions from tex up to position pos."""
+    return _parse_definecolors(_strip_comments(tex[:pos]))
+
+
+def _parse_rowcolors(tex: str) -> Optional[Tuple[int, str, str]]:
+    """Parse last \\rowcolors command, return (start_row, color1, color2) or None."""
+    result = None
+    for m in re.finditer(r"\\rowcolors\{(\d+)\}\{([^}]*)\}\{([^}]*)\}", tex):
+        result = (int(m.group(1)), m.group(2).strip(), m.group(3).strip())
+    return result
+
+
+def parse_rowcolors_before(tex: str, pos: int) -> Optional[Tuple[int, str, str]]:
+    """Parse last \\rowcolors before position pos."""
+    return _parse_rowcolors(_strip_comments(tex[:pos]))
+
+
+def _parse_newcommands(tex: str) -> Dict[str, Tuple[int, str]]:
+    """Parse \\newcommand/\\renewcommand/\\providecommand definitions from tex."""
+    cmds: Dict[str, Tuple[int, str]] = {}
+    pattern = re.compile(
+        r"\\(?:new|renew|provide)command\s*"
+        r"(?:\{\\([a-zA-Z]+)\}|\\([a-zA-Z]+))"
+        r"(?:\[(\d+)\])?"
+        rf"\{{({_NESTED})\}}",
+        re.DOTALL,
+    )
+    for m in pattern.finditer(tex):
+        name = m.group(1) or m.group(2)
+        nargs = int(m.group(3)) if m.group(3) else 0
+        body = m.group(4)
+        if r"\begin{" in body or r"\includegraphics" in body:
+            continue
+        cmds[name] = (nargs, body)
+    return cmds
+
+
+def _expand_newcommands(tex: str, cmds: Dict[str, Tuple[int, str]]) -> str:
+    """Expand \\newcommand definitions in tex, up to 10 rounds."""
+    if not cmds:
+        return tex
+    sorted_cmds = sorted(cmds.items(), key=lambda x: len(x[0]), reverse=True)
+    for _ in range(10):
+        changed = False
+        for name, (nargs, body) in sorted_cmds:
+            pat = r"\\" + re.escape(name) + r"(?![a-zA-Z])"
+            if nargs == 0:
+                new_tex = re.sub(pat, lambda m, b=body: b, tex)
+            else:
+                for _i in range(nargs):
+                    pat += rf"\s*\{{({_NESTED})\}}"
+
+                def _repl(m, b=body, n=nargs):
+                    r = b
+                    for i in range(n):
+                        r = r.replace(f"#{i+1}", m.group(i + 1))
+                    return r
+
+                new_tex = re.sub(pat, _repl, tex, flags=re.DOTALL)
+            if new_tex != tex:
+                changed = True
+                tex = new_tex
+        if not changed:
+            break
+    return tex
+
+
+def parse_newcommands(tex: str) -> Dict[str, Tuple[int, str]]:
+    """Extract \\newcommand definitions from a full .tex file (public API)."""
+    return _parse_newcommands(_strip_comments(tex))
 
 
 def _extract_tabular_body(tex: str) -> Optional[str]:
@@ -133,25 +438,38 @@ def _extract_tabular_body(tex: str) -> Optional[str]:
 
 def _split_rows(body: str) -> List[str]:
     """Split tabular body into row strings, skipping rule commands."""
+    return [r for r, _ in _split_rows_with_hline(body)]
+
+
+def _split_rows_with_hline(body: str) -> List[Tuple[str, bool]]:
+    """Split tabular body into (row_string, has_hline_before) tuples.
+
+    The has_hline_before flag indicates if a \\hline appeared before this row,
+    which can be used to detect group boundaries in visual multirow patterns.
+    """
     # Split by \\ respecting brace nesting (don't split inside {})
     parts = _split_by_double_backslash(body)
     rows = []
     for part in parts:
         original = part.strip()
+        # Check for \hline at the start (indicates group boundary)
+        has_hline = bool(re.match(r"^\s*\\hline\b", original))
         # Remove rule commands within a row chunk (with optional arguments like [0.5pt])
-        s = re.sub(r"\\(toprule|bottomrule|midrule)(?:\[[^\]]*\])?\s*", "", original)
+        s = re.sub(r"^\s*\\hline\s*", "", original)  # Remove leading \hline first
+        s = re.sub(r"\\(toprule|bottomrule|midrule)(?:\[[^\]]*\])?\s*", "", s)
         s = re.sub(r"\\cmidrule(\([^)]*\))?\{[^}]*\}\s*", "", s)
         s = s.strip()
         if s:
-            rows.append(s)
-        elif not original:
+            rows.append((s, has_hline))
+        elif not original or has_hline:
             # Preserve empty rows (needed for multirow placeholders)
-            rows.append("")
-        # else: rule-only row, skip
-    # Trim leading/trailing empty rows
-    while rows and rows[-1] == "":
+            # Also preserve hline-only rows as empty with hline flag
+            rows.append(("", has_hline))
+        # else: rule-only row (other than hline), skip
+    # Trim leading/trailing empty rows (but preserve their hline flags for next non-empty)
+    while rows and rows[-1][0] == "" and not rows[-1][1]:
         rows.pop()
-    while rows and rows[0] == "":
+    while rows and rows[0][0] == "" and not rows[0][1]:
         rows.pop(0)
     return rows
 
@@ -193,11 +511,41 @@ _MULTIROW_RE = re.compile(
 
 def _parse_row(row_str: str) -> Optional[List[Cell]]:
     """Parse a single row string into a list of Cells."""
-    # Split by & respecting brace nesting
+    # Extract \rowcolor before splitting — it applies to the entire row
+    row_bg = None
+    m = re.search(r"\\rowcolor(\[[^\]]*\])?\{([^}]*)\}", row_str)
+    if m:
+        row_bg = _normalize_color(m.group(2), m.group(1) or "")
+        row_str = (row_str[:m.start()] + row_str[m.end():]).strip()
+
+    # Extract custom row color commands: \grow{...} or \grow ... → gray, \brow{...} or \brow ... → lightblue
+    # Handle both \cmd{content} and \cmd content (LaTeX first-token argument)
+    m = re.search(r"\\grow(?:\{([^}]*)\}|(?!\{)\s*(\S+))", row_str)
+    if m:
+        row_bg = "#F0F0F0"  # gray94
+        content = m.group(1) or m.group(2) or ""
+        row_str = (row_str[:m.start()] + content + row_str[m.end():]).strip()
+    m = re.search(r"\\brow(?:\{([^}]*)\}|(?!\{)\s*(\S+))", row_str)
+    if m:
+        row_bg = "#DDEBF7"  # lightblue RGB(221,235,247)
+        content = m.group(1) or m.group(2) or ""
+        row_str = (row_str[:m.start()] + content + row_str[m.end():]).strip()
+
     parts = _split_by_ampersand(row_str)
     cells = []
     for part in parts:
         cell = _parse_cell(part.strip())
+        if row_bg and not cell.style.bg_color:
+            cell = Cell(
+                value=cell.value, style=CellStyle(
+                    bold=cell.style.bold, italic=cell.style.italic,
+                    underline=cell.style.underline, color=cell.style.color,
+                    bg_color=row_bg, alignment=cell.style.alignment,
+                    fmt=cell.style.fmt, diagbox=cell.style.diagbox,
+                    rotation=cell.style.rotation,
+                ),
+                rowspan=cell.rowspan, colspan=cell.colspan,
+            )
         cells.append(cell)
     return cells if cells else None
 
@@ -277,14 +625,14 @@ def _parse_cell(text: str) -> Cell:
 
     # Extract colors FIRST (before multirow/multicolumn which use .match())
     for _ in range(3):  # handle multiple color commands
-        m = re.search(r"\\cellcolor(?:\[[^\]]*\])?\{([^}]*)\}", text)
+        m = re.search(r"\\cellcolor(\[[^\]]*\])?\{([^}]*)\}", text)
         if m:
-            bg_color = m.group(1)
+            bg_color = _normalize_color(m.group(2), m.group(1) or "")
             text = (text[:m.start()] + text[m.end():]).strip()
             continue
-        m = re.search(r"\\rowcolor(?:\[[^\]]*\])?\{([^}]*)\}", text)
+        m = re.search(r"\\rowcolor(\[[^\]]*\])?\{([^}]*)\}", text)
         if m:
-            bg_color = m.group(1)
+            bg_color = _normalize_color(m.group(2), m.group(1) or "")
             text = (text[:m.start()] + text[m.end():]).strip()
             continue
         break
@@ -305,24 +653,68 @@ def _parse_cell(text: str) -> Cell:
         rowspan = round(float(m.group(1)))  # negative = content at bottom
         text = m.group(2).strip()
 
+    # Convert mid-text \color{name}{content} → \textcolor{name}{content}
+    # so the rich_segments logic below can detect it
+    text = re.sub(
+        rf"\\color(\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}",
+        lambda m: f"\\textcolor{m.group(1) or ''}{{{m.group(2)}}}{{{m.group(3)}}}",
+        text,
+    )
+
+    # Detect multiple \textcolor → rich text segments
+    _tc_matches = list(re.finditer(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text))
+    rich_segments = None
+    if len(_tc_matches) >= 1:
+        segs = []
+        pos = 0
+        for _m in _tc_matches:
+            if _m.start() > pos:
+                plain = _clean_latex(text[pos:_m.start()]).strip()
+                if plain:
+                    segs.append((plain, None, False, False, False))
+            color = _normalize_color(_m.group(1))
+            sb, si, su, _, content = _parse_formatting(_m.group(2))
+            content = content.strip()
+            if content:
+                segs.append((content, color, sb, si, su))
+            pos = _m.end()
+        if pos < len(text):
+            remaining = _clean_latex(text[pos:]).strip()
+            if remaining:
+                segs.append((remaining, None, False, False, False))
+        if len(segs) > 1:
+            rich_segments = tuple(segs)
+
     # Extract \textcolor{color}{content}
-    m = re.search(r"\\textcolor(?:\[[^\]]*\])?\{([^}]*)\}\{([^}]*)\}", text)
-    if m:
-        text_color = m.group(1)
-        text = text[:m.start()] + m.group(2) + text[m.end():]
+    for _ in range(10):
+        m = re.search(rf"\\textcolor(\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text)
+        if not m:
+            break
+        if not text_color:
+            text_color = _normalize_color(m.group(2), m.group(1) or "")
+        text = text[:m.start()] + m.group(3) + text[m.end():]
 
     # Extract standalone \color{name} (switch command, affects rest of group)
+    # Only treat as cell-level color if at the start (no content before it)
     if not text_color:
-        m = re.search(r"\\color(?:\[[^\]]*\])?\{([^}]*)\}", text)
-        if m:
-            text_color = m.group(1)
+        m = re.search(r"\\color(\[[^\]]*\])?\{([^}]*)\}", text)
+        if m and not text[:m.start()].strip():
+            text_color = _normalize_color(m.group(2), m.group(1) or "")
             text = (text[:m.start()] + text[m.end():]).strip()
 
-    # Extract \colorbox{color}{content} (loop for multiple occurrences)
+    # Extract \fcolorbox{frame}{bg}{content} and \colorbox{color}{content}
     for _ in range(10):
-        m = re.search(r"\\colorbox(?:\[[^\]]*\])?\{([^}]*)\}\{([^}]*)\}", text)
+        m = re.search(r"\\fcolorbox\{[^}]*\}\{([^}]*)\}\{([^}]*)\}", text)
         if m:
+            if not bg_color:
+                bg_color = _normalize_color(m.group(1))
             text = text[:m.start()] + m.group(2) + text[m.end():]
+            continue
+        m = re.search(r"\\colorbox(\[[^\]]*\])?\{([^}]*)\}\{([^}]*)\}", text)
+        if m:
+            if not bg_color:
+                bg_color = _normalize_color(m.group(2), m.group(1) or "")
+            text = text[:m.start()] + m.group(3) + text[m.end():]
             continue
         break
 
@@ -335,8 +727,33 @@ def _parse_cell(text: str) -> Cell:
     # Strip redundant outer braces: {{\underline{.451}}} → \underline{.451}
     text = _strip_outer_braces(text)
 
+    # Extract custom color formatting: \gbf{...} → green bold, \rbf{...} → red bold
+    gbf_bold = False
+    for _ in range(3):
+        m = re.search(r"\\gbf\{([^}]*)\}", text)
+        if m:
+            text_color = "#228B22"  # darkgreen
+            gbf_bold = True
+            text = text[:m.start()] + m.group(1) + text[m.end():]
+            continue
+        m = re.search(r"\\rbf\{([^}]*)\}", text)
+        if m:
+            text_color = "#FF0000"  # red
+            gbf_bold = True
+            text = text[:m.start()] + m.group(1) + text[m.end():]
+            continue
+        m = re.search(rf"\\gray\{{({_NESTED})\}}", text)
+        if m:
+            if not text_color:
+                text_color = "#808080"  # gray
+            text = text[:m.start()] + m.group(1) + text[m.end():]
+            continue
+        break
+
     # Parse formatting and extract value
     bold, italic, underline, diagbox_parts, value = _parse_formatting(text)
+    if gbf_bold:
+        bold = True
 
     # Try to parse as number
     num_value = _try_parse_number(value)
@@ -357,6 +774,7 @@ def _parse_cell(text: str) -> Cell:
         style=style,
         rowspan=rowspan,
         colspan=colspan,
+        rich_segments=rich_segments,
     )
 
 
@@ -397,7 +815,7 @@ def _parse_formatting(text: str) -> Tuple[bool, bool, bool, Optional[List[str]],
             changed = True
             continue
 
-        m = re.fullmatch(r"\\underline\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
+        m = re.fullmatch(r"\\(?:underline|ul)\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
         if m:
             underline = True
             text = m.group(1).strip()
@@ -423,6 +841,14 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\textasciicircle{}", "^")
     text = text.replace("\\textasciitilde{}", "~")
     text = text.replace("\\textbackslash{}", "\\")
+    # \begin{tabular}[c]{@{}c@{}}content\end{tabular} → content (nested tabular as makecell)
+    text = re.sub(
+        r"\\begin\{tabular\}(?:\[[^\]]*\])?\{[^}]*\}(.*?)\\end\{tabular\}",
+        lambda m: m.group(1).replace("\\\\", "\n"),
+        text, flags=re.DOTALL,
+    )
+    # \makebox[width][pos]{content} → content
+    text = re.sub(r"\\makebox(?:\[[^\]]*\])*\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", r"\1", text)
     # \makecell{Things-\\EEG} → Things-\nEEG (preserve line breaks as newline)
     text = re.sub(r"\\makecell(?:\[[^\]]*\])?\{([^}]*)\}", lambda m: m.group(1).replace("\\\\", "\n"), text)
     # \specialcell[t]{content} → content (like makecell)
@@ -463,6 +889,7 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\star", "★")
     text = text.replace("\\textdagger", "†")
     text = text.replace("\\dagger", "†")
+    text = text.replace("\\ddagger", "‡")
     text = text.replace("\\ddag", "‡")
     text = re.sub(r"\\dag(?![a-zA-Z])", "†", text)
     text = re.sub(r"\\S(?![a-zA-Z])", "§", text)
@@ -474,17 +901,22 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\geq", "≥")
     text = text.replace("\\neq", "≠")
     text = text.replace("\\approx", "≈")
-    text = text.replace("\\cdot", "·")
+    text = text.replace("\\cdots", "⋯")
+    text = re.sub(r"\\cdot(?![a-zA-Z])", "·", text)
     text = text.replace("\\ell", "ℓ")
     # Superscript: ^{content} → content, ^X → X
     text = re.sub(r"\^\\text\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"\^\\dagger", "†", text)
+    text = re.sub(r"\^\\dagger\b", "†", text)
+    text = re.sub(r"\^\\ddagger\b", "‡", text)
+    text = re.sub(r"\^\\ddag\b", "‡", text)
+    text = re.sub(r"\^\\S\b", "§", text)
+    text = re.sub(r"\^\\star\b", "★", text)
     text = re.sub(r"\^\\mathrm\{([^}]*)\}", r"\1", text)
     text = re.sub(r"\^\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"\^([a-zA-Z0-9*†]+)", r"\1", text)
-    # Subscript: _{content} → content, _X → X
-    text = re.sub(r"(?<!\\)_\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"(?<!\\)_([a-zA-Z0-9])(?![a-zA-Z0-9])", r"\1", text)
+    text = re.sub(r"\^([a-zA-Z0-9*†‡§★]+)", r"\1", text)
+    # Subscript: _{content} → _content, _X → _X (preserve underscore)
+    text = re.sub(r"(?<!\\)_\{([^}]*)\}", r"_\1", text)
+    text = re.sub(r"(?<!\\)_([a-zA-Z0-9])(?![a-zA-Z0-9])", r"_\1", text)
     # Special symbols
     text = text.replace("\\Checkmark", "✓")
     text = text.replace("\\checkmark", "✓")
@@ -495,9 +927,10 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\ding{51}", "✓")
     text = text.replace("\\ding{52}", "✓")
     text = text.replace("\\ding{55}", "✗")
+    text = text.replace("\\ding{56}", "✗")
     # \ding without braces (after brace stripping)
     text = re.sub(r"\\ding\s*5[12]", "✓", text)
-    text = re.sub(r"\\ding\s*55", "✗", text)
+    text = re.sub(r"\\ding\s*5[56]", "✗", text)
     text = text.replace("\\bigstar", "★")
     text = text.replace("\\blacktriangledown", "▼")
     text = text.replace("\\compareyes", "✓")
@@ -505,6 +938,20 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\compareno", "✗")
     text = text.replace("\\tick", "✓")
     text = text.replace("\\cross", "✗")
+    # \usym{XXXX} → Unicode character
+    text = text.replace("\\usym{2713}", "✓")
+    text = text.replace("\\usym{2714}", "✓")
+    text = text.replace("\\usym{2717}", "✗")
+    text = re.sub(r"\\usym\{([0-9A-Fa-f]{4,5})\}", lambda m: chr(int(m.group(1), 16)), text)
+    # \faIcon{...} → strip (FontAwesome icons)
+    text = re.sub(r"\\faIcon\{[^}]*\}", "", text)
+    # FontAwesome direct commands
+    text = text.replace("\\faCheckCircle", "✓")
+    text = text.replace("\\faTimesCircle", "✗")
+    # \kern dimension → strip
+    text = re.sub(r"\\kern\s*-?[\d.]+\w*\s*", "", text)
+    # \rlap{content} → content
+    text = re.sub(r"\\rlap\{([^}]*)\}", r"\1", text)
     text = text.replace("\\varepsilon", "ε")
     text = text.replace("\\phi", "φ")
     text = text.replace("\\rho", "ρ")
@@ -520,6 +967,7 @@ def _clean_latex(text: str) -> str:
     # Remove \, and other spacing; convert '\ ' (forced space) to space
     text = text.replace("\\ ", " ")
     text = re.sub(r"\\[,;!]", "", text)
+    text = re.sub(r"\\xspace\b\s*", "", text)
     text = re.sub(r"\\q?quad\s*", " ", text)
     # Remove font style commands: \bf, \rm, \it, \tt, \sc, \bfseries, \boldmath, etc.
     text = re.sub(r"\\(bf|rm|it|tt|sc|bfseries|rmfamily|itshape|ttfamily|scshape|boldmath|unboldmath|bm)\b\s*", "", text)
@@ -582,7 +1030,7 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\languagelogos?\b\s*", "[Lang]", text)
     text = re.sub(r"\\imagelogo\b\s*", "[Img]", text)
     text = re.sub(r"\\videologo\b\s*", "[Vid]", text)
-    text = re.sub(r"\\(pixtralemoji|llamaemoji|Locating|Gray|gray|icono|doct|codet|chordalone|chordalthree|chordalfour|chordaltwo|lgin|hgreen|myred|hlgood|hlbad|freeze|update|best|second|third|UR|icoyes|icohalf|Lgray|first|cycle|zzb|zza|Delta|usym|locogpt|Qwenemoji|Googleemoji|glmemoji|Claudeemoji|Openaiemoji|mathct|blue|red|green|greyc|gres|grem|grexl|gret|SSR|SR|champmark|champ|Large|lv|name|codeio|codeiopp|model|Ours|thedit|thevae|negCS|championlogo|silverlogo|bronzelogo|refinv|refeq|lvert|rvert|circ)\b[a-z]*\s*", "", text)
+    text = re.sub(r"\\(pixtralemoji|llamaemoji|Locating|Gray|gray|icono|lgin|hgreen|myred|hlgood|hlbad|freeze|update|best|second|third|UR|icoyes|icohalf|Lgray|first|zzb|zza|Delta|usym|locogpt|Qwenemoji|Googleemoji|glmemoji|Claudeemoji|Openaiemoji|blue|red|green|greyc|gres|grem|grexl|gret|SSR|SR|champmark|champ|Large|lv|name|codeio|codeiopp|model|Ours|negCS|championlogo|silverlogo|bronzelogo|refinv|refeq|lvert|rvert|circ)\b[a-z]*\s*", "", text)
     # Remove \raisebox{...}{content} or \raisebox[...]{...}{content}
     text = re.sub(r"\\raisebox\{[^}]*\}(?:\[[^\]]*\])*\{([^}]*)\}", r"\1", text)
     text = re.sub(r"\\raisebox[\d.]+\w*(?:\[[^\]]*\])*\s*", "", text)
@@ -625,8 +1073,8 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\ref[a-z]*:[^\s,)]+", "", text)
     # Remove \mathcal without braces (brace-stripped): \mathcalP → P
     text = re.sub(r"\\math(?:bf|cal|it|rm|tt|sf)(?=[A-Z0-9])", "", text)
-    # Generic fallback: strip any remaining \command that wasn't caught above
-    text = re.sub(r"\\[a-zA-Z]+\s*", "", text)
+    # Generic fallback: convert remaining \command to plain text (preserve custom commands like \thedit)
+    text = re.sub(r"\\([a-zA-Z]+)\s*", r"\1", text)
     # Remove trailing backslash
     text = re.sub(r"\\$", "", text)
     # Normalize spacing around ±: "0.626 ±0.018" → "0.626±0.018"
@@ -637,9 +1085,15 @@ def _clean_latex(text: str) -> str:
 
 
 def _try_parse_number(text: str) -> Optional[float]:
-    """Try to parse text as a number. Returns float or None."""
+    """Try to parse text as a number. Returns float or None.
+
+    Note: Strings starting with '+' are NOT parsed as numbers to preserve the sign.
+    """
     t = text.strip()
     if not t:
+        return None
+    # Preserve strings starting with '+' (e.g., '+1.12') as strings
+    if t.startswith('+'):
         return None
     # Handle .451 style (no leading zero)
     try:

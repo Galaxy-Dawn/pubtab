@@ -9,11 +9,49 @@ from typing import Optional, Union
 from .models import Cell, CellStyle, TableData
 
 
+def _extract_rich_segments(raw_value) -> Optional[tuple]:
+    """Extract rich_segments from CellRichText, or return None."""
+    try:
+        from openpyxl.cell.rich_text import CellRichText, TextBlock
+    except ImportError:
+        return None
+    if not isinstance(raw_value, CellRichText):
+        return None
+    segs = []
+    has_formatting = False
+    for block in raw_value:
+        if isinstance(block, str):
+            segs.append((block, None, False, False, False))
+        elif isinstance(block, TextBlock):
+            text = block.text or ""
+            font = block.font
+            color = None
+            bold = bool(font.b) if font.b is not None else False
+            italic = bool(font.i) if font.i is not None else False
+            underline = bool(font.u) if font.u else False
+            if font.color and font.color.rgb and isinstance(font.color.rgb, str):
+                rgb = font.color.rgb
+                if rgb.startswith("FF") and len(rgb) == 8:
+                    color = f"#{rgb[2:]}"
+            if color or bold or italic or underline:
+                has_formatting = True
+            segs.append((text, color, bold, italic, underline))
+    if not has_formatting or len(segs) < 2:
+        return None
+    return tuple(segs)
+
+
 def _excel_fmt_to_python(fmt: str) -> Optional[str]:
     """Convert Excel number format to Python format spec."""
+    # Decimal: 0.00, #.000, etc.
     m = re.match(r'^[#0]*\.([0]+)$', fmt)
     if m:
         return f'.{len(m.group(1))}f'
+    # Percentage: 0%, 0.00%, etc.
+    m = re.match(r'^[#0]*\.?([0]*)%$', fmt)
+    if m:
+        decimals = len(m.group(1))
+        return f'.{decimals}%' if decimals else '.0%'
     return None
 
 
@@ -45,7 +83,7 @@ def _read_xlsx(
 ) -> TableData:
     import openpyxl
 
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = openpyxl.load_workbook(path, data_only=True, rich_text=True)
     if sheet is None:
         ws = wb.active
     elif isinstance(sheet, int):
@@ -81,28 +119,43 @@ def _read_xlsx(
 
             cell = ws.cell(row=r, column=c)
             style = _extract_xlsx_style(cell)
-            value = cell.value if cell.value is not None else ""
+            raw_value = cell.value
+            rich_segments = None
 
-            # Auto-detect diagbox: "X / Y" pattern — only for non-numeric labels
-            if isinstance(value, str) and " / " in value:
+            # Extract rich text segments from CellRichText
+            rich_segments = _extract_rich_segments(raw_value)
+            if rich_segments is not None:
+                value = "".join(seg[0] for seg in rich_segments)
+            else:
+                value = raw_value if raw_value is not None else ""
+
+            # Auto-detect diagbox: "X / Y" pattern — only top-left corner with text labels
+            if isinstance(value, str) and " / " in value and r == 1 and c == 1:
                 parts = value.split(" / ", 1)
-                # Numeric or dash values → plain "left/right", not diagbox
                 _numeric = all(p.strip().replace('.','',1).replace('-','',1).lstrip('-').isdigit() or p.strip() == '--' for p in parts)
-                if _numeric:
-                    value = f"{parts[0].strip()}/{parts[1].strip()}"
-                else:
+                if not _numeric:
                     style = CellStyle(
                         bold=style.bold, italic=style.italic, underline=style.underline,
                         color=style.color, bg_color=style.bg_color, alignment=style.alignment,
-                        fmt=style.fmt, diagbox=parts,
+                        fmt=style.fmt, diagbox=parts, rotation=style.rotation,
                     )
                     value = ""
 
-            row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan))
+            row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan, rich_segments=rich_segments))
         cells.append(row_cells)
+
+    # Strip trailing empty rows
+    while len(cells) > 1 and all(not c.value and c.value != 0 for c in cells[-1]):
+        cells.pop()
+    num_rows = len(cells)
 
     if header_rows is None:
         header_rows = max((c.rowspan for c in cells[0]), default=1) if cells else 1
+        r = 1
+        while r < header_rows and r < len(cells):
+            for cell in cells[r]:
+                header_rows = max(header_rows, r + cell.rowspan)
+            r += 1
 
     return TableData(cells=cells, num_rows=num_rows, num_cols=num_cols, header_rows=header_rows)
 
@@ -121,20 +174,24 @@ def _extract_xlsx_style(cell) -> CellStyle:
 
     bg_color = None
     fill = cell.fill
-    if fill and fill.fgColor and fill.fgColor.rgb and isinstance(fill.fgColor.rgb, str):
-        rgb = fill.fgColor.rgb[-6:]
-        if rgb != "000000":
+    if fill and fill.fill_type and fill.fill_type != "none":
+        if fill.fgColor and fill.fgColor.rgb and isinstance(fill.fgColor.rgb, str):
+            rgb = fill.fgColor.rgb[-6:]
             bg_color = f"#{rgb}"
 
     alignment = "center"
     if align and align.horizontal:
         alignment = align.horizontal
 
+    rotation = 0
+    if align and align.text_rotation:
+        rotation = align.text_rotation
+
     fmt = None
     if cell.number_format and cell.number_format != "General":
         fmt = _excel_fmt_to_python(cell.number_format)
 
-    return CellStyle(bold=bold, italic=italic, underline=underline, color=color, bg_color=bg_color, alignment=alignment, fmt=fmt)
+    return CellStyle(bold=bold, italic=italic, underline=underline, color=color, bg_color=bg_color, alignment=alignment, fmt=fmt, rotation=rotation)
 
 
 def _read_xls(
@@ -187,6 +244,11 @@ def _read_xls(
 
     if header_rows is None:
         header_rows = max((c.rowspan for c in cells[0]), default=1) if cells else 1
+        r = 1
+        while r < header_rows and r < len(cells):
+            for cell in cells[r]:
+                header_rows = max(header_rows, r + cell.rowspan)
+            r += 1
 
     return TableData(cells=cells, num_rows=num_rows, num_cols=num_cols, header_rows=header_rows)
 
