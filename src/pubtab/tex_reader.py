@@ -887,6 +887,7 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\tau", "τ")
     text = text.replace("\\triangle", "△")
     text = text.replace("\\star", "★")
+    text = text.replace("\\textdaggerdbl", "‡")
     text = text.replace("\\textdagger", "†")
     text = text.replace("\\dagger", "†")
     text = text.replace("\\ddagger", "‡")
