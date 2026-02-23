@@ -23,6 +23,12 @@ def main() -> None:
 @click.option("--header-rows", default=None, type=int, help="Number of header rows.")
 @click.option("--span-columns", is_flag=True, default=False, help="Use table* for two-column spanning.")
 @click.option("--preview", "do_preview", is_flag=True, help="Generate PNG preview.")
+@click.option("--position", default=None, help="Float position [default: htbp].")
+@click.option("--font-size", default=None, help="Font size (e.g. footnotesize).")
+@click.option("--resizebox", default=None, help="Resize width (e.g. 0.8\\textwidth).")
+@click.option("--col-spec", default=None, help="Column spec (e.g. lccc).")
+@click.option("--dpi", default=None, type=int, help="Preview DPI [default: 300].")
+@click.option("--header-sep", default=None, help="Custom header separator.")
 @click.option("--preamble", default=None, help="Extra LaTeX preamble for preview.")
 def convert(
     input_file: str,
@@ -35,6 +41,12 @@ def convert(
     header_rows: int | None,
     span_columns: bool,
     do_preview: bool,
+    position: str | None,
+    font_size: str | None,
+    resizebox: str | None,
+    col_spec: str | None,
+    dpi: int | None,
+    header_sep: str | None,
     preamble: str | None,
 ) -> None:
     """Convert an Excel file to LaTeX.
@@ -71,6 +83,18 @@ def convert(
         kwargs["span_columns"] = True
     if do_preview:
         kwargs["preview"] = True
+    if position is not None:
+        kwargs["position"] = position
+    if font_size is not None:
+        kwargs["font_size"] = font_size
+    if resizebox is not None:
+        kwargs["resizebox"] = resizebox
+    if col_spec is not None:
+        kwargs["col_spec"] = col_spec
+    if dpi is not None:
+        kwargs["dpi"] = dpi
+    if header_sep is not None:
+        kwargs["header_sep"] = header_sep
     if preamble is not None:
         kwargs["preamble"] = preamble
 

@@ -7,8 +7,22 @@ name = "pubtab"
 version = "0.1.0"
 description = "Excel to publication-ready LaTeX tables"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 license = "MIT"
+authors = [{name = "Gaorui Zhang"}]
+keywords = ["latex", "table", "excel", "academic", "publication"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
 dependencies = [
     "openpyxl>=3.1",
     "xlrd>=2.0",
@@ -20,6 +34,11 @@ dependencies = [
 [project.optional-dependencies]
 preview = ["pdf2image>=1.16"]
 dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/gaoruizhang/pubtab"
+Repository = "https://github.com/gaoruizhang/pubtab"
+Issues = "https://github.com/gaoruizhang/pubtab/issues"
 
 [project.scripts]
 pubtab = "pubtab.cli:main"
