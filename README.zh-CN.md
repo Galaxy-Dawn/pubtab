@@ -2,7 +2,7 @@
 
 <div align="center">
 
-  <img src="LOGO.png" alt="pubtab logo" width="200"/>
+  <img src="LOGO.png" alt="pubtab logo" width="100%"/>
 
   <p>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/v/pubtab?style=flat-square&color=blue" alt="PyPI Version"/></a>
