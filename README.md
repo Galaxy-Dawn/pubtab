@@ -2,6 +2,8 @@
 
 <div align="center">
 
+  <img src="LOGO.png" alt="pubtab logo" width="200"/>
+
   <p>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/v/pubtab?style=flat-square&color=blue" alt="PyPI Version"/></a>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/pyversions/pubtab?style=flat-square" alt="Python Versions"/></a>
