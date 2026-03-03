@@ -32,10 +32,10 @@ pip install pubtab
 
 ```bash
 # Excel → LaTeX
-pubtab convert table.xlsx -o output.tex
+pubtab xlsx2tex table.xlsx -o output.tex
 
 # With options
-pubtab convert table.xlsx -o output.tex --theme three_line --caption "Results" --label "tab:results" --preview
+pubtab xlsx2tex table.xlsx -o output.tex --theme three_line --caption "Results" --label "tab:results" --preview
 
 # LaTeX → Excel (reverse)
 pubtab tex2xlsx paper_table.tex -o recovered.xlsx
@@ -50,8 +50,8 @@ pubtab preview output.tex -o preview.png --dpi 300
 import pubtab
 
 # Excel → LaTeX
-pubtab.convert("table.xlsx", output="table.tex", theme="three_line",
-               caption="Experimental Results", label="tab:results")
+pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line",
+                caption="Experimental Results", label="tab:results")
 
 # LaTeX → PNG preview
 pubtab.preview("table.tex", dpi=300)
@@ -122,16 +122,16 @@ pip install pubtab[preview]  # installs pdf2image
 
 | Command | Description |
 |---------|-------------|
-| `pubtab convert` | Convert Excel to LaTeX |
+| `pubtab xlsx2tex` | Convert Excel to LaTeX |
 | `pubtab tex2xlsx` | Convert LaTeX to Excel |
 | `pubtab preview` | Generate PNG from .tex |
 | `pubtab themes` | List available themes |
 
 <details>
-<summary>Full <code>convert</code> options</summary>
+<summary>Full <code>xlsx2tex</code> options</summary>
 
 ```
-pubtab convert INPUT -o OUTPUT [OPTIONS]
+pubtab xlsx2tex INPUT -o OUTPUT [OPTIONS]
 
 Options:
   -o, --output TEXT          Output .tex file (required)
@@ -149,7 +149,6 @@ Options:
   --preview                 Generate PNG preview
   --dpi INTEGER             Preview DPI [default: 300]
   --header-sep TEXT          Custom header separator
-  --preamble TEXT            Extra LaTeX preamble
 ```
 
 </details>
@@ -173,7 +172,7 @@ group_separators: [3, 6]
 ```
 
 ```bash
-pubtab convert table.xlsx -o output.tex -c config.yaml
+pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 ```
 
 ## Theme System
@@ -206,7 +205,7 @@ pubtab/
 ├── README.zh-CN.md
 ├── LICENSE
 └── src/pubtab/
-    ├── __init__.py        # Public API: convert, preview, tex_to_excel
+    ├── __init__.py        # Public API: xlsx2tex, preview, tex_to_excel
     ├── cli.py             # CLI (click)
     ├── models.py          # Data models (Cell, TableData, SpacingConfig, ThemeConfig)
     ├── reader.py          # Excel reader (.xlsx/.xls)

@@ -12,7 +12,7 @@ def main() -> None:
     """pubtab — Excel to publication-ready LaTeX tables."""
 
 
-@main.command()
+@main.command("xlsx2tex")
 @click.argument("input_file")
 @click.option("-o", "--output", required=True, help="Output .tex file path.")
 @click.option("-c", "--config", default=None, help="YAML config file path.")
@@ -29,8 +29,8 @@ def main() -> None:
 @click.option("--col-spec", default=None, help="Column spec (e.g. lccc).")
 @click.option("--dpi", default=None, type=int, help="Preview DPI [default: 300].")
 @click.option("--header-sep", default=None, help="Custom header separator.")
-@click.option("--preamble", default=None, help="Extra LaTeX preamble for preview.")
-def convert(
+@click.option("--upright-scripts", is_flag=True, default=False, help="Wrap sub/superscript content in \\mathrm{} for upright rendering.")
+def xlsx2tex_cmd(
     input_file: str,
     output: str,
     config: str | None,
@@ -47,7 +47,7 @@ def convert(
     col_spec: str | None,
     dpi: int | None,
     header_sep: str | None,
-    preamble: str | None,
+    upright_scripts: bool,
 ) -> None:
     """Convert an Excel file to LaTeX.
 
@@ -95,10 +95,10 @@ def convert(
         kwargs["dpi"] = dpi
     if header_sep is not None:
         kwargs["header_sep"] = header_sep
-    if preamble is not None:
-        kwargs["preamble"] = preamble
+    if upright_scripts:
+        kwargs["upright_scripts"] = True
 
-    pt.convert(input_file, output, **kwargs)
+    pt.xlsx2tex(input_file, output, **kwargs)
     click.echo(f"Written: {output}")
 
     if do_preview:
@@ -126,13 +126,18 @@ def tex2xlsx(input_file: str, output: str) -> None:
 
 @main.command("preview")
 @click.argument("tex_file")
-@click.option("-o", "--output", default=None, help="Output PNG path.")
+@click.option("-o", "--output", default=None, help="Output path.")
 @click.option("--theme", default="three_line", help="Theme name.")
 @click.option("--dpi", default=300, type=int, help="PNG resolution.")
+@click.option("--format", "fmt", default="png", type=click.Choice(["png", "pdf"]), help="Output format [default: png].")
 @click.option("--preamble", default=None, help="Extra LaTeX preamble (e.g. custom commands).")
-def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, preamble: str | None) -> None:
-    """Generate PNG preview from a .tex file."""
-    from ._preview import preview as gen_preview
+def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, fmt: str, preamble: str | None) -> None:
+    """Generate PNG or PDF from a .tex file."""
+    import pubtab as pt
 
-    result = gen_preview(tex_file, output=output, theme=theme, dpi=dpi, preamble=preamble)
-    click.echo(f"Preview: {result}")
+    result = pt.preview(tex_file, output=output, theme=theme, dpi=dpi, preamble=preamble, format=fmt)
+    click.echo(f"Output: {result}")
+
+
+# Hidden alias for backward compatibility
+main.add_command(xlsx2tex_cmd, "convert")

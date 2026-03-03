@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import Optional, Union
@@ -11,6 +12,112 @@ from jinja2 import Environment
 from .models import Cell, CellStyle, SpacingConfig, TableData, ThemeConfig
 from .themes import load_theme
 from .utils import format_number, hex_to_latex_color, latex_escape
+
+# Detect math expressions like P_t, F_1, BLEU_1, COT_web, F1_max that need $...$ wrapping.
+# Matches: letter + optional alphanumeric base + _ or ^ + alphanumeric subscript/superscript.
+_MATH_EXPR_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*[_^][A-Za-z0-9]+$')
+# Detect embedded math sub-expressions like F_1, F1_max inside mixed strings like "F_1-max".
+_MATH_SUBEXPR_RE = re.compile(r'([A-Za-z][A-Za-z0-9]*[_^][A-Za-z0-9]+)')
+# Detect numeric subscripts like 00.0_00.0 (from $_{...}$ stripped by parser).
+_NUMERIC_SUBSCRIPT_RE = re.compile(r'([\d.]+)_([\d.]+)')
+# Detect numeric values with signed subscripts like 37.54_+3.80, 94.00_-1.02
+# Pattern: NUMBER _ [+-] NUMBER
+_NUMERIC_SIGNED_SUBSCRIPT_RE = re.compile(r'^([\d.]+)_([+-][\d.]+)$')
+# Detect $...$ math segments mixed with plain text, e.g. "$F_1$-max"
+_MATH_DOLLAR_RE = re.compile(r'(\$[^$]+\$)')
+# Detect expressions like AR(AP)_LM-O: base with parens + subscript with hyphens
+# Pattern: ALPHANUM(ALPHANUM)_ALPHANUM[-ALPHANUM]*
+_MATH_PARENS_HYPHEN_RE = re.compile(
+    r'^([A-Za-z][A-Za-z0-9]*)\(([A-Za-z0-9]+)\)([_^])([A-Za-z][A-Za-z0-9-]*)$'
+)
+# Special chars that still need escaping inside $...$
+_MATH_INNER_SPECIAL = {"&": r"\&", "%": r"\%", "#": r"\#"}
+_MATH_INNER_RE = re.compile("|".join(re.escape(k) for k in _MATH_INNER_SPECIAL))
+# Reverse mapping: Unicode mathcal → \mathcal{X}
+_UNICODE_TO_LATEX = {
+    "𝒜": r"\mathcal{A}", "ℬ": r"\mathcal{B}", "𝒞": r"\mathcal{C}",
+    "𝒟": r"\mathcal{D}", "ℰ": r"\mathcal{E}", "ℱ": r"\mathcal{F}",
+    "𝒢": r"\mathcal{G}", "ℋ": r"\mathcal{H}", "ℐ": r"\mathcal{I}",
+    "𝒥": r"\mathcal{J}", "𝒦": r"\mathcal{K}", "ℒ": r"\mathcal{L}",
+    "ℳ": r"\mathcal{M}", "𝒩": r"\mathcal{N}", "𝒪": r"\mathcal{O}",
+    "𝒫": r"\mathcal{P}", "𝒬": r"\mathcal{Q}", "ℛ": r"\mathcal{R}",
+    "𝒮": r"\mathcal{S}", "𝒯": r"\mathcal{T}", "𝒰": r"\mathcal{U}",
+    "𝒱": r"\mathcal{V}", "𝒲": r"\mathcal{W}", "𝒳": r"\mathcal{X}",
+    "𝒴": r"\mathcal{Y}", "𝒵": r"\mathcal{Z}",
+    "↑": r"\uparrow", "↓": r"\downarrow", "→": r"\rightarrow", "←": r"\leftarrow",
+    "↗": r"\nearrow", "↘": r"\searrow",
+    "†": r"\dagger", "‡": r"\ddagger",
+    # Greek lowercase
+    "α": r"\alpha", "β": r"\beta", "γ": r"\gamma", "δ": r"\delta",
+    "ε": r"\epsilon", "ζ": r"\zeta", "η": r"\eta", "θ": r"\theta",
+    "κ": r"\kappa", "λ": r"\lambda", "μ": r"\mu", "π": r"\pi",
+    "ρ": r"\rho", "σ": r"\sigma", "τ": r"\tau", "φ": r"\phi", "ω": r"\omega",
+    # Greek uppercase
+    "Σ": r"\Sigma", "Ω": r"\Omega", "Δ": r"\Delta",
+    # Math symbols
+    "∞": r"\infty", "ℓ": r"\ell",
+}
+_UNICODE_MATH_RE = re.compile("|".join(re.escape(k) for k in _UNICODE_TO_LATEX))
+
+
+def _cleaned_to_math(s: str) -> str:
+    """Convert cleaned math text back to LaTeX $...$ expression."""
+    t = s
+    t = re.sub(r'\^\(([^)]+)\)', r'^{\1}', t)       # ^(l-1) → ^{l-1}
+    t = re.sub(r'\^([A-Za-z0-9])', r'^{\1}', t)      # ^T → ^{T}
+    # Subscript handling:
+    # Multi-char lowercase subscript at word boundary (e.g., _en, _in) → _{en}, _{in}
+    # Use placeholder to avoid double-processing
+    t = re.sub(r'_([a-z]{2,})(?=[^a-z]|$|[A-Z])', r'@SUBBRACE@\1@END@', t)
+    # Single char subscript (including uppercase, digits, unicode)
+    t = re.sub(r'_([A-Za-z0-9]|.)', r'_{\1}', t)
+    # Restore multi-char subscripts
+    t = t.replace('@SUBBRACE@', '_{').replace('@END@', '}')
+    t = _UNICODE_MATH_RE.sub(lambda m: _UNICODE_TO_LATEX[m.group()], t)
+    return "$" + _MATH_INNER_RE.sub(lambda m: _MATH_INNER_SPECIAL[m.group()], t) + "$"
+
+
+def _embed_math_subexprs(s: str) -> str:
+    """Wrap embedded math sub-expressions in $...$, escape surrounding plain text.
+
+    e.g. "F_1-max" → "F$_{1}$-max"
+    """
+    parts = _MATH_SUBEXPR_RE.split(s)
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:  # captured math sub-expression
+            _m = re.match(r'^([A-Za-z][A-Za-z0-9]*)([_^])([A-Za-z0-9]+)$', part)
+            if _m:
+                # Keep base in text mode; subscript/superscript in math mode
+                base = latex_escape(_m.group(1))
+                script = _m.group(2)
+                content = _m.group(3)
+                result.append(f"{base}${script}{{{content}}}$")
+            else:
+                result.append("$" + part + "$")
+        else:
+            result.append(latex_escape(part))
+    return "".join(result)
+
+
+def _process_with_dollar_math(s: str) -> str:
+    """Handle strings that contain $...$ math segments mixed with plain text.
+
+    e.g. "$F_1$-max" → "$F_1$-max"  (keep math as-is, escape plain parts)
+    """
+    parts = _MATH_DOLLAR_RE.split(s)
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:  # $...$ math segment — keep as-is
+            result.append(part)
+        else:
+            if _MATH_SUBEXPR_RE.search(part):
+                result.append(_embed_math_subexprs(part))
+            elif _NUMERIC_SUBSCRIPT_RE.search(part):
+                result.append(_NUMERIC_SUBSCRIPT_RE.sub(r"\1$_{\2}$", part))
+            else:
+                result.append(latex_escape(part))
+    return "".join(result)
 
 
 def _cell_to_latex(cell: Cell) -> str:
@@ -23,7 +130,67 @@ def _cell_to_latex(cell: Cell) -> str:
     elif cell.style.fmt and isinstance(val, (int, float)):
         text = format_number(val, cell.style.fmt, cell.style.strip_leading_zero)
     else:
-        text = latex_escape(str(val))
+        s = str(val)
+        if re.match(r'^\$[^$]+\$$', s):
+            text = s  # entire value is a math expression, pass through as-is
+        elif _MATH_PARENS_HYPHEN_RE.match(s):
+            # Handle AR(AP)_LM-O style: base(parens)_subscript-with-hyphens
+            _m = _MATH_PARENS_HYPHEN_RE.match(s)
+            # Keep base(parens) in text mode so \textbf/\textit apply;
+            # subscript in math mode.
+            _base = latex_escape(f"{_m.group(1)}({_m.group(2)})")
+            _op, _sub = _m.group(3), _m.group(4)
+            text = f"{_base}${_op}{{{_sub}}}$"
+        elif _MATH_EXPR_RE.match(s):
+            _m = re.match(r'^([A-Za-z][A-Za-z0-9]*)([_^])([A-Za-z0-9]+)$', s)
+            if _m and len(_m.group(1)) > 1:
+                # Multi-letter base (e.g. CHAIR_S, BLEU_1, hazel_nut): keep base in
+                # text mode so \textbf/\textit apply; subscript in math mode.
+                _base = latex_escape(_m.group(1))
+                _op, _sub = _m.group(2), _m.group(3)
+                text = f"{_base}${_op}{{{_sub}}}$"
+            elif _m:
+                # Single-letter base (e.g. M^2, p_task): keep base in text mode
+                _base = latex_escape(_m.group(1))
+                text = f"{_base}${_m.group(2)}{{{_m.group(3)}}}$"
+            else:
+                text = "$" + _MATH_INNER_RE.sub(lambda m: _MATH_INNER_SPECIAL[m.group()], s) + "$"
+        elif _MATH_DOLLAR_RE.search(s):
+            text = _process_with_dollar_math(s)
+        elif re.match(r'^[A-Za-z][A-Za-z0-9-]*\^', s):
+            # Base (single or multi-letter, possibly with hyphens) with ^(...) or ^X: keep base in text mode
+            _m = re.match(r'^([A-Za-z][A-Za-z0-9-]*)(\^(?:\([^)]+\)|[A-Za-z0-9]+))(.*)', s)
+            if _m:
+                _base = latex_escape(_m.group(1))
+                _sup_raw = _m.group(2)[1:]  # strip leading ^
+                _sup = _sup_raw.strip('()')
+                _rest_raw = _m.group(3)
+                # Convert unicode math symbols in rest (e.g. ↑→\uparrow) into the math expression
+                _rest_conv = _UNICODE_MATH_RE.sub(lambda m: _UNICODE_TO_LATEX[m.group()], _rest_raw)
+                if _rest_conv != _rest_raw:
+                    text = f"{_base}$^{{{_sup}}}{_rest_conv}$"
+                elif '^' in _rest_raw or '_' in _rest_raw:
+                    # Rest contains more math - use _cleaned_to_math and merge into one expression
+                    _rest_math = _cleaned_to_math(_rest_raw).strip('$')
+                    text = f"{_base}$^{{{_sup}}}{_rest_math}$"
+                else:
+                    text = f"{_base}$^{{{_sup}}}${latex_escape(_rest_raw)}"
+            else:
+                text = _cleaned_to_math(s)
+        elif '^' in s:
+            text = _cleaned_to_math(s)
+        elif _MATH_SUBEXPR_RE.search(s):
+            text = _embed_math_subexprs(s)
+        elif _NUMERIC_SUBSCRIPT_RE.search(s):
+            text = _NUMERIC_SUBSCRIPT_RE.sub(r"\1$_{\2}$", s)
+        elif _NUMERIC_SIGNED_SUBSCRIPT_RE.match(s):
+            # Handle 37.54_+3.80 style: number with signed subscript (+/-)
+            _m = _NUMERIC_SIGNED_SUBSCRIPT_RE.match(s)
+            text = f"{_m.group(1)}$_{{{_m.group(2)}}}$"
+        elif _UNICODE_MATH_RE.search(s) and ('_' in s or '^' in s):
+            text = _cleaned_to_math(s)
+        else:
+            text = latex_escape(s)
 
     # Rich segments: per-segment color/bold/italic/underline
     if cell.rich_segments and not cell.style.raw_latex:
@@ -76,14 +243,19 @@ def _cell_to_latex(cell: Cell) -> str:
     if cell.rowspan > 1:
         text = f"\\multirow{{{cell.rowspan}}}{{*}}{{{text}}}"
 
-    # cellcolor: inside multicolumn to color full span, outside multirow
-    if not cell.style.raw_latex and cell.style.bg_color:
-        rgb = hex_to_latex_color(cell.style.bg_color)
-        text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
-
     if cell.colspan > 1:
         align = cell.style.alignment[0] if cell.style.alignment else "c"
-        text = f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}"
+        if cell.style.bg_color:
+            # \columncolor in the col-spec colors the entire multicolumn span
+            rgb = hex_to_latex_color(cell.style.bg_color)
+            text = f"\\multicolumn{{{cell.colspan}}}{{>{{\\columncolor[RGB]{{{rgb}}}}}{align}}}{{{text}}}"
+        else:
+            text = f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}"
+
+    # cellcolor for single-column cells (multicolumn case handled above)
+    if cell.style.bg_color and cell.colspan <= 1:
+        rgb = hex_to_latex_color(cell.style.bg_color)
+        text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
 
     return text
 
@@ -139,6 +311,25 @@ def _normalize_group_separators(gs):
     return gs or {}
 
 
+def _row_uniform_bg(cells: list) -> Optional[str]:
+    """Return bg_color if all visible cells share the same non-None bg_color, else None."""
+    skip = 0
+    color: Optional[str] = None
+    for cell in cells:
+        if skip > 0:
+            skip -= 1
+            continue
+        if cell.colspan > 1:
+            skip = cell.colspan - 1
+        if cell.style.bg_color is None:
+            return None
+        if color is None:
+            color = cell.style.bg_color
+        elif color != cell.style.bg_color:
+            return None
+    return color
+
+
 def render(
     table: TableData,
     theme: str = "three_line",
@@ -154,6 +345,7 @@ def render(
     header_cmidrule: bool = True,
     wide: bool = False,
     span_columns: Optional[bool] = None,
+    upright_scripts: bool = False,
 ) -> str:
     """Render TableData to a LaTeX string.
 
@@ -210,6 +402,10 @@ def render(
         latex_row = []
         skip = 0
         ci = 0
+        # Use \rowcolor when all visible cells share the same bg_color.
+        # \rowcolor alone only colors the first physical column of each multicolumn span,
+        # so multicolumn cells also keep \columncolor in their col-spec for full coverage.
+        row_bg = _row_uniform_bg(row)
         for cell in row:
             if skip > 0:
                 skip -= 1
@@ -236,6 +432,10 @@ def render(
                 s = f"\\multicolumn{{1}}{{c}}{{{s}}}"
             latex_row.append(s)
             ci += 1
+        # Prepend \rowcolor to first cell so the entire row (incl. multicolumn spans) is colored
+        if row_bg and latex_row:
+            rgb = hex_to_latex_color(row_bg)
+            latex_row[0] = f"\\rowcolor[RGB]{{{rgb}}}" + latex_row[0]
         all_rows.append(latex_row)
 
     raw_header_rows = all_rows[: table.header_rows]
@@ -282,12 +482,15 @@ def render(
             ):
                 is_section = True
         if is_section and i > 0:
-            body_rows_with_seps.append("\\midrule")
+            # Only add auto-before if previous item is not already a midrule
+            if not body_rows_with_seps or body_rows_with_seps[-1] != "\\midrule":
+                body_rows_with_seps.append("\\midrule")
         body_rows_with_seps.append(row)
-        if is_section:
-            body_rows_with_seps.append("\\midrule")
         abs_idx = table.header_rows + i
-        if abs_idx in gs:
+        has_group_sep = abs_idx in gs
+        if is_section and not has_group_sep:
+            body_rows_with_seps.append("\\midrule")
+        if has_group_sep:
             sep = gs[abs_idx]
             if isinstance(sep, list):
                 body_rows_with_seps.extend(sep)
@@ -323,7 +526,10 @@ def render(
         "wide": wide,
     }
 
-    return tmpl.render(**ctx)
+    result = tmpl.render(**ctx)
+    if upright_scripts:
+        result = re.sub(r'([_^])\{([^}\\]+)\}', r'\1{\\mathrm{\2}}', result)
+    return result
 
 
 def render_to_file(
@@ -342,6 +548,7 @@ def render_to_file(
     header_cmidrule: bool = True,
     wide: bool = False,
     span_columns: Optional[bool] = None,
+    upright_scripts: bool = False,
 ) -> Path:
     """Render TableData and write to a .tex file."""
     output = Path(output)
@@ -350,7 +557,7 @@ def render_to_file(
         position=position, spacing=spacing,
         font_size=font_size, resizebox=resizebox, col_spec=col_spec,
         header_sep=header_sep, header_cmidrule=header_cmidrule,
-        wide=wide, span_columns=span_columns,
+        wide=wide, span_columns=span_columns, upright_scripts=upright_scripts,
     )
     output.write_text(tex)
     return output

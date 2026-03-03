@@ -13,13 +13,13 @@ from .models import Cell, SpacingConfig, TableData
 from .reader import read_excel
 from .renderer import render
 
-__all__ = ["convert", "preview", "tex_to_excel", "SpacingConfig"]
+__all__ = ["xlsx2tex", "preview", "compile_pdf", "tex_to_excel", "SpacingConfig"]
 
 # Sentinel for detecting unset kwargs
 _UNSET = object()
 
 
-def convert(
+def xlsx2tex(
     input_file: Union[str, Path],
     output: Union[str, Path],
     config: Optional[Union[str, Path]] = None,
@@ -43,6 +43,7 @@ def convert(
     preview: bool = _UNSET,
     preamble: Optional[str] = _UNSET,
     dpi: int = _UNSET,
+    upright_scripts: bool = _UNSET,
     # Deprecated aliases
     wide: bool = _UNSET,
     raw_caption: bool = _UNSET,
@@ -85,7 +86,7 @@ def convert(
         font_size=None, resizebox=None, col_spec=None, header_sep=None,
         header_cmidrule=True, span_columns=False, custom_header=None, group_separators=None,
         cell_formatter=None, num_cols=None, preview=False, preamble=None,
-        dpi=300,
+        dpi=300, upright_scripts=False,
     )
 
     # Load YAML config
@@ -107,7 +108,7 @@ def convert(
         custom_header=custom_header,
         group_separators=group_separators,
         cell_formatter=cell_formatter, num_cols=num_cols, preview=preview,
-        preamble=preamble, dpi=dpi,
+        preamble=preamble, dpi=dpi, upright_scripts=upright_scripts,
     )
     p = {k: (v if v is not _UNSET else defaults[k]) for k, v in explicit.items()}
 
@@ -142,7 +143,7 @@ def convert(
         position=p["position"], spacing=p["spacing"],
         font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
         header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
-        span_columns=p["span_columns"],
+        span_columns=p["span_columns"], upright_scripts=p["upright_scripts"],
     )
     Path(output).write_text(tex)
 
@@ -161,22 +162,58 @@ def preview(
     theme: str = "three_line",
     dpi: int = 300,
     preamble: Optional[str] = None,
+    format: str = "png",
 ) -> Path:
-    """Generate a PNG preview from LaTeX content or .tex file.
+    """Generate a preview from LaTeX content or .tex file.
 
     Args:
         tex_input: LaTeX string or path to .tex file.
-        output: Output PNG path.
+        output: Output file path. Defaults to input stem + .png/.pdf.
         theme: Theme name.
-        dpi: Resolution.
+        dpi: Resolution (PNG only).
         preamble: Extra LaTeX preamble (e.g. custom commands).
+        format: Output format, "png" or "pdf".
 
     Returns:
-        Path to generated PNG.
+        Path to generated file.
     """
-    from ._preview import preview as _preview
+    if format == "pdf":
+        return compile_pdf(tex_input, output=output, theme=theme, preamble=preamble)
 
+    from ._preview import preview as _preview
     return _preview(tex_input, output=output, theme=theme, dpi=dpi, preamble=preamble)
+
+
+def compile_pdf(
+    tex_input: Union[str, Path],
+    output: Optional[Union[str, Path]] = None,
+    theme: str = "three_line",
+    preamble: Optional[str] = None,
+) -> Path:
+    """Compile LaTeX content or .tex file to PDF.
+
+    Args:
+        tex_input: LaTeX string or path to .tex file.
+        output: Output PDF path. Defaults to input stem + .pdf.
+        theme: Theme name (for package imports).
+        preamble: Extra LaTeX preamble.
+
+    Returns:
+        Path to generated PDF.
+    """
+    from ._preview import compile_pdf as _compile_pdf
+
+    tex_path = Path(tex_input)
+    if tex_path.exists():
+        tex_content = tex_path.read_text()
+        if output is None:
+            output = tex_path.with_suffix(".pdf")
+    else:
+        tex_content = str(tex_input)
+        if output is None:
+            output = Path("output.pdf")
+
+    return _compile_pdf(tex_content, output, theme=theme, preamble=preamble)
 
 
 def tex_to_excel(
@@ -185,6 +222,8 @@ def tex_to_excel(
 ) -> Path:
     """Convert a LaTeX .tex file to Excel .xlsx.
 
+    For multi-table files, each table is written to a separate sheet.
+
     Args:
         input_file: Path to .tex file.
         output: Output .xlsx file path.
@@ -192,13 +231,16 @@ def tex_to_excel(
     Returns:
         Path to generated .xlsx file.
     """
-    from .tex_reader import read_tex
-    from .writer import write_excel
+    from .tex_reader import read_tex_multi
+    from .writer import write_excel, write_excel_multi
 
     tex_content = Path(input_file).read_text()
-    table = read_tex(tex_content)
-    return write_excel(table, output)
+    tables = read_tex_multi(tex_content)
+    if len(tables) == 1:
+        return write_excel(tables[0], output)
+    return write_excel_multi(tables, output)
 
 
-# Deprecated alias
+# Deprecated aliases
+convert = xlsx2tex
 generate_preview = preview

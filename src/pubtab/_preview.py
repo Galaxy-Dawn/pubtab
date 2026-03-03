@@ -141,11 +141,13 @@ def _build_standalone(tex_content: str, theme: str = "three_line",
                       preamble: Optional[str] = None) -> str:
     """Wrap table LaTeX in a standalone document."""
     config, _ = load_theme(theme)
-    all_pkgs = list(config.packages) + ["caption", "graphicx"]
+    all_pkgs = list(config.packages) + ["caption", "graphicx", "fontenc"]
     pkg_lines = []
     for p in all_pkgs:
         if p == "xcolor":
-            pkg_lines.append("\\usepackage[table]{xcolor}")
+            pkg_lines.append("\\usepackage[dvipsnames,table]{xcolor}")
+        elif p == "fontenc":
+            pkg_lines.append("\\usepackage[T1]{fontenc}")
         else:
             pkg_lines.append(f"\\usepackage{{{p}}}")
     pkgs = "\n".join(pkg_lines)
@@ -198,11 +200,12 @@ def compile_pdf(
         result = subprocess.run(
             [pdflatex, "-interaction=nonstopmode", "-output-directory", tmpdir, str(tex_path)],
             capture_output=True,
-            text=True,
         )
         pdf_path = Path(tmpdir) / "table.pdf"
         if not pdf_path.exists():
-            raise RuntimeError(f"pdflatex failed:\n{result.stdout}\n{result.stderr}")
+            out = result.stdout.decode("utf-8", errors="replace")
+            err = result.stderr.decode("utf-8", errors="replace")
+            raise RuntimeError(f"pdflatex failed:\n{out}\n{err}")
 
         shutil.copy2(pdf_path, output)
     return output
@@ -273,7 +276,12 @@ def _pdf_to_png(pdf_path: Path, output: Path, dpi: int = 300) -> None:
             if pngs:
                 shutil.copy2(pngs[0], output)
                 return
-    elif shutil.which("convert"):
+    elif shutil.which("magick"):
+        subprocess.run(
+            ["magick", str(pdf_path), "-density", str(dpi), str(output)],
+            capture_output=True,
+        )
+    elif platform.system() != "Windows" and shutil.which("convert"):
         subprocess.run(
             ["convert", "-density", str(dpi), str(pdf_path), str(output)],
             capture_output=True,

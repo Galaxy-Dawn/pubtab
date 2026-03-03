@@ -32,10 +32,10 @@ pip install pubtab
 
 ```bash
 # Excel → LaTeX
-pubtab convert table.xlsx -o output.tex
+pubtab xlsx2tex table.xlsx -o output.tex
 
 # 带选项
-pubtab convert table.xlsx -o output.tex --theme three_line --caption "Results" --label "tab:results" --preview
+pubtab xlsx2tex table.xlsx -o output.tex --theme three_line --caption "Results" --label "tab:results" --preview
 
 # LaTeX → Excel（反向转换）
 pubtab tex2xlsx paper_table.tex -o recovered.xlsx
@@ -50,8 +50,8 @@ pubtab preview output.tex -o preview.png --dpi 300
 import pubtab
 
 # Excel → LaTeX
-pubtab.convert("table.xlsx", output="table.tex", theme="three_line",
-               caption="Experimental Results", label="tab:results")
+pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line",
+                caption="Experimental Results", label="tab:results")
 
 # LaTeX → PNG 预览
 pubtab.preview("table.tex", dpi=300)
@@ -122,16 +122,16 @@ pip install pubtab[preview]  # 安装 pdf2image
 
 | 命令 | 说明 |
 |------|------|
-| `pubtab convert` | Excel 转 LaTeX |
+| `pubtab xlsx2tex` | Excel 转 LaTeX |
 | `pubtab tex2xlsx` | LaTeX 转 Excel |
 | `pubtab preview` | 从 .tex 生成 PNG |
 | `pubtab themes` | 列出可用主题 |
 
 <details>
-<summary>完整 <code>convert</code> 选项</summary>
+<summary>完整 <code>xlsx2tex</code> 选项</summary>
 
 ```
-pubtab convert INPUT -o OUTPUT [OPTIONS]
+pubtab xlsx2tex INPUT -o OUTPUT [OPTIONS]
 
 Options:
   -o, --output TEXT          输出 .tex 文件（必填）
@@ -149,7 +149,6 @@ Options:
   --preview                 生成 PNG 预览
   --dpi INTEGER             预览 DPI [默认: 300]
   --header-sep TEXT          自定义表头分隔符
-  --preamble TEXT            额外 LaTeX 导言
 ```
 
 </details>
@@ -173,7 +172,7 @@ group_separators: [3, 6]
 ```
 
 ```bash
-pubtab convert table.xlsx -o output.tex -c config.yaml
+pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 ```
 
 ## 主题系统
@@ -206,7 +205,7 @@ pubtab/
 ├── README.zh-CN.md
 ├── LICENSE
 └── src/pubtab/
-    ├── __init__.py        # 公共 API：convert, preview, tex_to_excel
+    ├── __init__.py        # 公共 API：xlsx2tex, preview, tex_to_excel
     ├── cli.py             # 命令行（click）
     ├── models.py          # 数据模型（Cell, TableData, SpacingConfig, ThemeConfig）
     ├── reader.py          # Excel 读取器（.xlsx/.xls）

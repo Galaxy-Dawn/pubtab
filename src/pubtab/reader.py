@@ -141,6 +141,16 @@ def _read_xlsx(
                     )
                     value = ""
 
+            # Auto-detect raw LaTeX: if cell value contains \command patterns,
+            # mark as raw_latex so the renderer passes it through unescaped
+            if isinstance(value, str) and re.search(r'\\[a-zA-Z]', value):
+                style = CellStyle(
+                    raw_latex=True,
+                    bold=style.bold, italic=style.italic, underline=style.underline,
+                    color=style.color, bg_color=style.bg_color, alignment=style.alignment,
+                    fmt=style.fmt, diagbox=style.diagbox, rotation=style.rotation,
+                )
+
             row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan, rich_segments=rich_segments))
         cells.append(row_cells)
 

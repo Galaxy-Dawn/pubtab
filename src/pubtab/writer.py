@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -15,21 +15,8 @@ from .models import TableData
 from .utils import _latex_color_to_hex
 
 
-def write_excel(table: TableData, output: Union[str, Path]) -> Path:
-    """Write TableData to an Excel file.
-
-    Args:
-        table: The table data to write.
-        output: Output .xlsx file path.
-
-    Returns:
-        Path to the generated file.
-    """
-    output = Path(output)
-    wb = Workbook()
-    ws = wb.active
-
-    # Track merged regions to skip placeholder cells
+def _write_sheet(ws, table: TableData) -> None:
+    """Write a single TableData to an openpyxl worksheet."""
     merged: set[tuple[int, int]] = set()
 
     for r, row in enumerate(table.cells):
@@ -56,7 +43,11 @@ def write_excel(table: TableData, output: Union[str, Path]) -> Path:
                         b=seg_bold or None,
                         i=seg_italic or None,
                         u="single" if seg_underline else None,
-                        color="FF" + seg_color.lstrip("#") if seg_color else None,
+                        # Explicitly write black for uncolored segments so openpyxl
+                        # preserves segment boundaries when the cell also has a bg fill.
+                        # Without this, the first colorless segment merges into the next
+                        # colored segment on readback (e.g. "00.0" + green "±0.00" → all green).
+                        color="FF" + seg_color.lstrip("#") if seg_color else "FF000000",
                     )
                     rt.append(TextBlock(ifont, seg_text))
                 val = rt
@@ -125,12 +116,48 @@ def write_excel(table: TableData, output: Union[str, Path]) -> Path:
         for row_idx in range(1, len(table.cells) + 1):
             val = ws.cell(row=row_idx, column=col_idx).value
             if val is not None:
-                # Use max line length for multi-line cells
                 cell_len = max(len(str(line)) for line in str(val).split("\n"))
                 max_len = max(max_len, cell_len)
-        # Add padding, minimum width 4
         ws.column_dimensions[get_column_letter(col_idx)].width = max(max_len + 3, 4)
 
+
+def write_excel(table: TableData, output: Union[str, Path]) -> Path:
+    """Write TableData to an Excel file.
+
+    Args:
+        table: The table data to write.
+        output: Output .xlsx file path.
+
+    Returns:
+        Path to the generated file.
+    """
+    output = Path(output)
+    wb = Workbook()
+    _write_sheet(wb.active, table)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(output))
+    return output
+
+
+def write_excel_multi(tables: List[TableData], output: Union[str, Path]) -> Path:
+    """Write multiple TableData objects to separate sheets in one Excel file.
+
+    Args:
+        tables: List of TableData to write.
+        output: Output .xlsx file path.
+
+    Returns:
+        Path to the generated file.
+    """
+    output = Path(output)
+    wb = Workbook()
+    for i, table in enumerate(tables):
+        if i == 0:
+            ws = wb.active
+            ws.title = "Table 1"
+        else:
+            ws = wb.create_sheet(title=f"Table {i + 1}")
+        _write_sheet(ws, table)
     output.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(output))
     return output

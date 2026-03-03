@@ -21,7 +21,7 @@ _LATEX_RE = re.compile("|".join(re.escape(k) for k in _LATEX_SPECIAL))
 
 
 _UNICODE_TO_LATEX = {
-    "±": "$\\pm$",
+    "±": "$\\pm{}$",
     "×": "$\\times$",
     "≤": "$\\leq$",
     "≥": "$\\geq$",
@@ -61,7 +61,7 @@ _UNICODE_TO_LATEX = {
     "ω": "$\\omega$",
     # Greek uppercase
     "Σ": "$\\Sigma$",
-    "Ω": "$\\Omega$",
+    "Ω": "$\\Omega{}$",
     # Math symbols
     "∞": "$\\infty$",
     "·": "$\\cdot$",

@@ -44,7 +44,26 @@ def _normalize_color(raw: str, spec: str = "") -> str | None:
         raw = raw.strip()
         if len(raw) == 6:
             return f"#{raw.upper()}"
-    return _custom_colors.get(raw.strip()) or _latex_color_to_hex(raw)
+    # Handle color!percent mixing where base is a custom-defined color
+    raw_stripped = raw.strip()
+    if "!" in raw_stripped:
+        _parts = raw_stripped.split("!")
+        _base_name = _parts[0].strip()
+        _base_hex = _custom_colors.get(_base_name)
+        if _base_hex and len(_parts) >= 2:
+            try:
+                _pct = float(_parts[1]) / 100.0
+                _h = _base_hex.lstrip("#")
+                _br = int(_h[0:2], 16)
+                _bg = int(_h[2:4], 16)
+                _bb = int(_h[4:6], 16)
+                _r = int(_br * _pct + 255 * (1 - _pct))
+                _g = int(_bg * _pct + 255 * (1 - _pct))
+                _b = int(_bb * _pct + 255 * (1 - _pct))
+                return f"#{_r:02X}{_g:02X}{_b:02X}"
+            except ValueError:
+                pass
+    return _custom_colors.get(raw_stripped) or _latex_color_to_hex(raw)
 
 
 def _trim_trailing_empty_cols(rows: List[List[Cell]], num_cols: int) -> int:
@@ -310,6 +329,59 @@ def read_tex(
     )
 
 
+def read_tex_multi(
+    tex: str,
+    newcommands: Optional[Dict[str, Tuple[int, str]]] = None,
+    definecolors: Optional[Dict[str, str]] = None,
+) -> List[TableData]:
+    """Parse all tabular environments from a LaTeX string.
+
+    For multi-table files, returns one TableData per tabular environment.
+    Custom colors and newcommands defined before each table are resolved.
+
+    Returns:
+        List of TableData, one per tabular environment found.
+    """
+    stripped = _strip_comments(tex)
+
+    # Parse shared newcommands from the full file
+    cmds = _parse_newcommands(stripped)
+    if newcommands:
+        cmds.update(newcommands)
+
+    # Expand newcommands in the full tex once
+    expanded_tex = _expand_newcommands(tex, cmds) if cmds else tex
+
+    # Extract all complete tabular blocks with positions from expanded tex
+    all_blocks = _extract_all_tabular_blocks(expanded_tex)
+    if not all_blocks:
+        raise ValueError("No tabular environment found")
+
+    expanded_stripped = _strip_comments(expanded_tex)
+    tables: List[TableData] = []
+    for block, block_pos in all_blocks:
+        # Resolve colors defined before this table
+        block_colors = _parse_definecolors(expanded_stripped[:block_pos])
+        if definecolors:
+            block_colors.update(definecolors)
+        # Resolve rowcolors before this table
+        block_rowcolors = _parse_rowcolors(expanded_stripped[:block_pos])
+        try:
+            table = read_tex(
+                block,
+                newcommands={},  # already expanded
+                definecolors=block_colors,
+                rowcolors=block_rowcolors,
+            )
+            tables.append(table)
+        except (ValueError, IndexError):
+            continue  # skip unparseable tables
+
+    if not tables:
+        raise ValueError("No parseable tabular environments found")
+    return tables
+
+
 def _strip_comments(tex: str) -> str:
     """Remove LaTeX % comments (but not escaped \\%)."""
     return re.sub(r"(?<!\\)%[^\n]*", "", tex)
@@ -350,7 +422,7 @@ def parse_rowcolors_before(tex: str, pos: int) -> Optional[Tuple[int, str, str]]
 
 
 def _parse_newcommands(tex: str) -> Dict[str, Tuple[int, str]]:
-    """Parse \\newcommand/\\renewcommand/\\providecommand definitions from tex."""
+    """Parse \\newcommand/\\renewcommand/\\providecommand/\\def definitions from tex."""
     cmds: Dict[str, Tuple[int, str]] = {}
     pattern = re.compile(
         r"\\(?:new|renew|provide)command\s*"
@@ -366,6 +438,13 @@ def _parse_newcommands(tex: str) -> Dict[str, Tuple[int, str]]:
         if r"\begin{" in body or r"\includegraphics" in body:
             continue
         cmds[name] = (nargs, body)
+    # Also parse \def\name{body} (no-argument form only)
+    def_pattern = re.compile(rf"\\def\\([a-zA-Z]+)\s*\{{({_NESTED})\}}", re.DOTALL)
+    for m in def_pattern.finditer(tex):
+        name, body = m.group(1), m.group(2)
+        if r"\begin{" in body or r"\includegraphics" in body:
+            continue
+        cmds.setdefault(name, (0, body))
     return cmds
 
 
@@ -377,7 +456,7 @@ def _expand_newcommands(tex: str, cmds: Dict[str, Tuple[int, str]]) -> str:
     for _ in range(10):
         changed = False
         for name, (nargs, body) in sorted_cmds:
-            pat = r"\\" + re.escape(name) + r"(?![a-zA-Z])"
+            pat = re.escape(name) + r"(?![a-zA-Z])"
             if nargs == 0:
                 new_tex = re.sub(pat, lambda m, b=body: b, tex)
             else:
@@ -404,36 +483,124 @@ def parse_newcommands(tex: str) -> Dict[str, Tuple[int, str]]:
     return _parse_newcommands(_strip_comments(tex))
 
 
-def _extract_tabular_body(tex: str) -> Optional[str]:
-    """Extract content between \\begin{tabular} and \\end{tabular}."""
-    tex = _strip_comments(tex)
-    # Find outermost \begin{tabular}{colspec}...\end{tabular}
-    m = re.search(
-        rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
-        tex, re.DOTALL,
+def _strip_newcommand_defs(tex: str) -> str:
+    """Remove \\newcommand/\\renewcommand/\\providecommand definitions.
+
+    Prevents _extract_tabular_body from picking up \\begin{tabular} inside
+    command definitions (e.g. \\specialcell).
+    """
+    return re.sub(
+        r"\\(?:new|renew|provide)command\s*"
+        r"(?:\{\\[a-zA-Z]+\}|\\[a-zA-Z]+)"
+        r"(?:\[\d+\])?(?:\[[^\]]*\])?"
+        rf"\{{({_NESTED})\}}",
+        "",
+        tex,
+        flags=re.DOTALL,
     )
-    if not m:
-        return None
-    start = m.end()
-    # Walk forward counting nested \begin{tabular}/\end{tabular}
-    depth = 1
-    pos = start
+
+
+def _extract_tabular_body(tex: str) -> Optional[str]:
+    """Extract content between \\begin{tabular} and \\end{tabular}.
+
+    When a file contains multiple tabular environments (e.g. two side-by-side
+    tables), returns the body of the *largest* one (by character length) so
+    that the most-content-rich table is chosen rather than always the first.
+    """
+    tex = _strip_comments(tex)
+    # Strip \newcommand definitions so we don't pick up \begin{tabular} inside
+    # command bodies (e.g. \specialcell uses \begin{tabular} internally)
+    tex = _strip_newcommand_defs(tex)
+
     begin_tag = "\\begin{tabular}"
     end_tag = "\\end{tabular}"
-    while pos < len(tex) and depth > 0:
-        bi = tex.find(begin_tag, pos)
-        ei = tex.find(end_tag, pos)
-        if ei == -1:
+    bodies: List[str] = []
+
+    search_from = 0
+    while True:
+        m = re.search(
+            rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
+            tex[search_from:], re.DOTALL,
+        )
+        if not m:
             break
-        if bi != -1 and bi < ei:
-            depth += 1
-            pos = bi + len(begin_tag)
+        abs_start = search_from + m.end()
+        # Walk forward counting nested \begin{tabular}/\end{tabular}
+        depth = 1
+        pos = abs_start
+        while pos < len(tex) and depth > 0:
+            bi = tex.find(begin_tag, pos)
+            ei = tex.find(end_tag, pos)
+            if ei == -1:
+                break
+            if bi != -1 and bi < ei:
+                depth += 1
+                pos = bi + len(begin_tag)
+            else:
+                depth -= 1
+                if depth == 0:
+                    bodies.append(tex[abs_start:ei].strip())
+                    search_from = ei + len(end_tag)
+                    break
+                pos = ei + len(end_tag)
         else:
-            depth -= 1
-            if depth == 0:
-                return tex[start:ei].strip()
-            pos = ei + len(end_tag)
-    return None
+            break
+
+    if not bodies:
+        return None
+    # Return the largest body — for multi-table files this picks the main table
+    return max(bodies, key=len)
+
+
+def _extract_all_tabular_blocks(tex: str) -> List[Tuple[str, int]]:
+    """Extract all complete tabular blocks with their start positions.
+
+    Returns:
+        List of (full_block, start_position) tuples. Each full_block includes
+        the \\begin{tabular}{...}...\\end{tabular} tags so it can be passed
+        directly to read_tex().
+    """
+    # Only strip comments, NOT newcommand defs, to preserve positions.
+    # When called from read_tex_multi, the input is already expanded so
+    # newcommand defs don't need to be stripped for finding tabular blocks.
+    tex_clean = _strip_comments(tex)
+
+    begin_tag = "\\begin{tabular}"
+    end_tag = "\\end{tabular}"
+    results: List[Tuple[str, int]] = []
+
+    search_from = 0
+    while True:
+        m = re.search(
+            rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
+            tex_clean[search_from:], re.DOTALL,
+        )
+        if not m:
+            break
+        block_start = search_from + m.start()
+        abs_start = search_from + m.end()
+        depth = 1
+        pos = abs_start
+        while pos < len(tex_clean) and depth > 0:
+            bi = tex_clean.find(begin_tag, pos)
+            ei = tex_clean.find(end_tag, pos)
+            if ei == -1:
+                break
+            if bi != -1 and bi < ei:
+                depth += 1
+                pos = bi + len(begin_tag)
+            else:
+                depth -= 1
+                if depth == 0:
+                    block_end = ei + len(end_tag)
+                    results.append((tex_clean[block_start:block_end], block_start))
+                    search_from = block_end
+                    break
+                pos = ei + len(end_tag)
+        else:
+            break
+
+    return results
 
 
 def _split_rows(body: str) -> List[str]:
@@ -457,6 +624,8 @@ def _split_rows_with_hline(body: str) -> List[Tuple[str, bool]]:
         # Remove rule commands within a row chunk (with optional arguments like [0.5pt])
         s = re.sub(r"^\s*\\hline\s*", "", original)  # Remove leading \hline first
         s = re.sub(r"\\(toprule|bottomrule|midrule)(?:\[[^\]]*\])?\s*", "", s)
+        # Remove \specialrule{width}{space_above}{space_below}
+        s = re.sub(r"\\specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cmidrule(\([^)]*\))?\{[^}]*\}\s*", "", s)
         s = s.strip()
         if s:
@@ -500,12 +669,15 @@ def _split_by_double_backslash(s: str) -> List[str]:
     return parts
 
 
-_NESTED = r"(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*"
+_NESTED = r"(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\})*"
 _MULTICOLUMN_RE = re.compile(
     rf"\\multicolumn\{{(\d+)\}}\{{({_NESTED})\}}\s*\{{({_NESTED})\}}"
 )
 _MULTIROW_RE = re.compile(
     rf"\\multirow(?:\[[^\]]*\])?\{{(-?[\d.]+)\}}(?:\[[^\]]*\])?(?:\{{[^}}]*\}}|\*)\s*\{{({_NESTED})\}}"
+)
+_MULTIROWCELL_RE = re.compile(
+    rf"\\multirowcell\{{(-?[\d.]+)\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}"
 )
 
 
@@ -545,6 +717,7 @@ def _parse_row(row_str: str) -> Optional[List[Cell]]:
                     rotation=cell.style.rotation,
                 ),
                 rowspan=cell.rowspan, colspan=cell.colspan,
+                rich_segments=cell.rich_segments,
             )
         cells.append(cell)
     return cells if cells else None
@@ -613,6 +786,7 @@ def _parse_cell(text: str) -> Cell:
         text = re.sub(r"^\s*\[[\d.]+\w*\]\s*", "", text)  # [0.8pt] width spec
         text = re.sub(r"^\\(hdashline|hline|thickhline|Xhline(?:\{[^}]*\}|[\d.]*)|addlinespace(?:\[[^\]]*\])?)\s*", "", text)
         text = re.sub(r"^\\(cmidrule|cdashline|cline)(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", text)
+        text = re.sub(r"^\\arrayrulecolor(?:\{[^}]*\}|[a-zA-Z]+)\s*", "", text)
         if text == prev:
             break
 
@@ -637,21 +811,49 @@ def _parse_cell(text: str) -> Cell:
             continue
         break
 
+    # Strip \parbox wrapper so inner \multirow/\rotatebox can be detected
+    m = re.match(rf"\\parbox(?:\[[^\]]*\])?\{{[^}}]*\}}\{{({_NESTED})\}}", text)
+    if m:
+        text = m.group(1).strip()
+
     # Strip leading font commands that block .match() for multirow/multicolumn
     text = re.sub(r"^\\(bf|it|rm|tt|sc|bfseries|itshape|rmfamily|ttfamily|scshape|boldmath|bm)\b\s*", "", text).strip()
 
-    # Extract multicolumn
+    # Extract multicolumn (handle nested: outer alignment wins)
     m = _MULTICOLUMN_RE.match(text)
     if m:
         colspan = int(m.group(1))
         alignment = m.group(2).strip()
         text = m.group(3).strip()
+        # If inner content is also a \multicolumn, extract it (keep outer alignment)
+        m2 = _MULTICOLUMN_RE.match(text)
+        if m2:
+            text = m2.group(3).strip()
+        # Re-extract cellcolor from inside multicolumn content
+        for _ in range(3):
+            m2 = re.search(r"\\cellcolor(\[[^\]]*\])?\{([^}]*)\}", text)
+            if m2:
+                if not bg_color:
+                    bg_color = _normalize_color(m2.group(2), m2.group(1) or "")
+                text = (text[:m2.start()] + text[m2.end():]).strip()
+                continue
+            break
+
+    # Extract multirowcell (makecell package: \multirowcell{N}{content})
+    m = _MULTIROWCELL_RE.match(text)
+    if m:
+        rowspan = round(float(m.group(1)))
+        text = m.group(2).strip()
 
     # Extract multirow
     m = _MULTIROW_RE.match(text)
     if m:
-        rowspan = round(float(m.group(1)))  # negative = content at bottom
+        rowspan = round(float(m.group(1)))
         text = m.group(2).strip()
+
+    # Strip \makebox BEFORE color conversion so {\color{...} content} inside \makebox
+    # doesn't split the text before \makebox can be removed (e.g. \compareyes expansion)
+    text = re.sub(r"\\makebox(?:\[[^\]]*\])*\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", r"\1", text)
 
     # Convert mid-text \color{name}{content} → \textcolor{name}{content}
     # so the rich_segments logic below can detect it
@@ -660,6 +862,39 @@ def _parse_cell(text: str) -> Cell:
         lambda m: f"\\textcolor{m.group(1) or ''}{{{m.group(2)}}}{{{m.group(3)}}}",
         text,
     )
+    # Convert brace-group color switch {\color{name} content} → \textcolor{name}{content}
+    # e.g. {\color{Red} \Large $\downarrow$} → \textcolor{Red}{$\downarrow$}
+    text = re.sub(
+        rf"\{{\\color(\[[^\]]*\])?\{{([^}}]*)\}}\s*({_NESTED})\}}",
+        lambda m: f"\\textcolor{m.group(1) or ''}{{{m.group(2)}}}{{{m.group(3).strip()}}}",
+        text,
+    )
+
+    # Extract \fcolorbox{frame}{bg}{content} and \colorbox{color}{content}
+    # Must happen BEFORE rich_segments detection so the color name doesn't leak
+    # into plain-text prefixes when _clean_latex is called on partial text.
+    for _ in range(10):
+        m = re.search(r"\\fcolorbox\{[^}]*\}\{([^}]*)\}\{([^}]*)\}", text)
+        if m:
+            if not bg_color:
+                bg_color = _normalize_color(m.group(1))
+            text = text[:m.start()] + m.group(2) + text[m.end():]
+            continue
+        m = re.search(rf"\\colorbox(\[[^\]]*\])?\{{([^}}]*)\}}\{{({_NESTED})\}}", text)
+        if m:
+            if not bg_color:
+                bg_color = _normalize_color(m.group(2), m.group(1) or "")
+            text = text[:m.start()] + m.group(3) + text[m.end():]
+            continue
+        break
+
+    # Extract \rotatebox{angle}{content} or \rotatebox[origin=c]{angle}{content}
+    # Must happen BEFORE rich_segments detection so rotatebox wrapper doesn't leak
+    # into plain-text segments (e.g. "rotatebox90■barrier" instead of "■ barrier").
+    m = re.search(rf"\\rotatebox(?:\[[^\]]*\])?\{{(\d+)\}}\{{({_NESTED})\}}", text)
+    if m:
+        rotation = int(m.group(1))
+        text = text[:m.start()] + m.group(2) + text[m.end():]
 
     # Detect multiple \textcolor → rich text segments
     _tc_matches = list(re.finditer(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text))
@@ -669,9 +904,10 @@ def _parse_cell(text: str) -> Cell:
         pos = 0
         for _m in _tc_matches:
             if _m.start() > pos:
-                plain = _clean_latex(text[pos:_m.start()]).strip()
+                _pb, _pi, _pu, _, plain = _parse_formatting(text[pos:_m.start()].strip())
+                plain = plain.lstrip()
                 if plain:
-                    segs.append((plain, None, False, False, False))
+                    segs.append((plain, None, _pb, _pi, _pu))
             color = _normalize_color(_m.group(1))
             sb, si, su, _, content = _parse_formatting(_m.group(2))
             content = content.strip()
@@ -679,12 +915,45 @@ def _parse_cell(text: str) -> Cell:
                 segs.append((content, color, sb, si, su))
             pos = _m.end()
         if pos < len(text):
-            remaining = _clean_latex(text[pos:]).strip()
+            _raw_rem = text[pos:]
+            _rb, _ri, _ru, _, remaining = _parse_formatting(_raw_rem.strip())
+            remaining = remaining.rstrip()
+            # Preserve a single leading space between colored and plain segments
+            if remaining and _raw_rem and _raw_rem[0] == ' ' and not remaining.startswith(' '):
+                remaining = ' ' + remaining
             if remaining:
-                segs.append((remaining, None, False, False, False))
+                segs.append((remaining, None, _rb, _ri, _ru))
         if len(segs) > 1:
             rich_segments = tuple(segs)
 
+    # Extract \textcolor{color}{content}
+    # BUT: if there's \textcolor inside a subscript/superscript with a STANDARD LaTeX color,
+    # preserve as raw LaTeX. Custom colors (like "down") are not safe to preserve because
+    # the renderer doesn't output \definecolor commands.
+    _subscript_color_match = re.search(r'[_^]\{[^}]*\\textcolor(?:\[[^\]]*\])?\{([^}]+)\}', text)
+    if _subscript_color_match:
+        _color_name = _subscript_color_match.group(1)
+        # Check if it's a standard LaTeX color (NOT from custom colors)
+        # Standard colors are those in _LATEX_COLORS dictionary
+        from .utils import _LATEX_COLORS
+        _is_standard_color = _color_name in _LATEX_COLORS or _color_name.lower() in _LATEX_COLORS
+        if _is_standard_color:
+            # Standard color - extract color and clean the \textcolor wrapper from text
+            if not text_color:
+                text_color = _normalize_color(_color_name)
+            # Remove the \textcolor wrapper but keep the content
+            # Pattern: \textcolor{colorname}{content} -> content
+            text = re.sub(
+                r'\\textcolor(?:\[[^\]]*\])?\{' + re.escape(_color_name) + r'\}\{([^}]+)\}',
+                r'\1',
+                text
+            )
+            return Cell(
+                value=text,
+                style=CellStyle(raw_latex=True, color=text_color, bg_color=bg_color, alignment=alignment),
+                rowspan=rowspan, colspan=colspan,
+            )
+        # Custom color - let it be extracted normally (color will be lost, but output will be valid)
     # Extract \textcolor{color}{content}
     for _ in range(10):
         m = re.search(rf"\\textcolor(\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text)
@@ -702,30 +971,109 @@ def _parse_cell(text: str) -> Cell:
             text_color = _normalize_color(m.group(2), m.group(1) or "")
             text = (text[:m.start()] + text[m.end():]).strip()
 
-    # Extract \fcolorbox{frame}{bg}{content} and \colorbox{color}{content}
-    for _ in range(10):
-        m = re.search(r"\\fcolorbox\{[^}]*\}\{([^}]*)\}\{([^}]*)\}", text)
-        if m:
-            if not bg_color:
-                bg_color = _normalize_color(m.group(1))
-            text = text[:m.start()] + m.group(2) + text[m.end():]
-            continue
-        m = re.search(r"\\colorbox(\[[^\]]*\])?\{([^}]*)\}\{([^}]*)\}", text)
-        if m:
-            if not bg_color:
-                bg_color = _normalize_color(m.group(2), m.group(1) or "")
-            text = text[:m.start()] + m.group(3) + text[m.end():]
-            continue
-        break
-
-    # Extract \rotatebox{angle}{content} or \rotatebox[origin=c]{angle}{content}
-    m = re.search(r"\\rotatebox(?:\[[^\]]*\])?\{(\d+)\}\{([^}]*)\}", text)
-    if m:
-        rotation = int(m.group(1))
-        text = text[:m.start()] + m.group(2) + text[m.end():]
-
     # Strip redundant outer braces: {{\underline{.451}}} → \underline{.451}
     text = _strip_outer_braces(text)
+
+    # Pre-extract \textcolor from math mode cells BEFORE the math-mode branch
+    # e.g. $72.95_{\textcolor{ForestGreen}{+38.82}}$ → extract ForestGreen color
+    # This handles cases where \textcolor is inside math mode with subscripts
+    _math_textcolor_match = re.search(
+        r'\$[^$]*\\textcolor(?:\[[^\]]*\])?\{([^}]+)\}\{([^}]+)\}[^$]*\$',
+        text
+    )
+    if _math_textcolor_match and not text_color:
+        _color_name = _math_textcolor_match.group(1)
+        _color_content = _math_textcolor_match.group(2)
+        text_color = _normalize_color(_color_name)
+        # If we extracted a color, also clean the text by removing the \textcolor wrapper
+        if text_color:
+            _full_match = re.search(
+                r'\\textcolor(?:\[[^\]]*\])?\{' + re.escape(_color_name) + r'\}\{' + re.escape(_color_content) + r'\}',
+                text
+            )
+            if _full_match:
+                text = text[:_full_match.start()] + _color_content + text[_full_match.end():]
+
+    # If entire cell is a single math expression $...$, try to simplify first
+    # e.g. $\textbf{80.11}$ → bold=True, value=80.11
+    # e.g. $20.2\pm 0.2$ → value="20.2±0.2"
+    # e.g. ${f_{\mathcal{D}}^{l-1}}'=A_{l}V_{l}$ → kept intact as raw LaTeX
+    if re.match(r'^\$[^$]+\$$', text):
+        _inner = text[1:-1].strip()
+        _fmt_bold = False
+        _fmt_italic = False
+        _fmt_underline = False
+        for _ in range(3):
+            _m = re.fullmatch(r'\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}', _inner)
+            if _m:
+                _fmt_bold = True
+                _inner = _m.group(1).strip()
+                continue
+            _m = re.fullmatch(r'\\(?:underline|ul)\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}', _inner)
+            if _m:
+                _fmt_underline = True
+                _inner = _m.group(1).strip()
+                continue
+            _m = re.fullmatch(r'\\(?:textit|emph)\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}', _inner)
+            if _m:
+                _fmt_italic = True
+                _inner = _m.group(1).strip()
+                continue
+            break
+        # Check for color commands inside subscripts/superscripts BEFORE cleaning.
+        # e.g. 37.54_{\textcolor{ForestGreen}{+3.80}} should extract color and keep as raw LaTeX.
+        _subscript_color_match = re.search(r'[_^]\{[^}]*\\textcolor(?:\[[^\]]*\])?\{([^}]+)\}\{([^}]+)\}', _inner)
+        if _subscript_color_match:
+            _sub_color_name = _subscript_color_match.group(1)
+            _sub_color_content = _subscript_color_match.group(2)
+            _sub_color = _normalize_color(_sub_color_name)
+            if _sub_color:
+                # Extract the color and keep the rest as raw LaTeX
+                # Reconstruct the value without the \textcolor wrapper but preserve subscript
+                _new_inner = re.sub(
+                    r'\\textcolor(?:\[[^\]]*\])?\{' + re.escape(_sub_color_name) + r'\}\{' + re.escape(_sub_color_content) + r'\}',
+                    _sub_color_content,
+                    _inner
+                )
+                text = '$' + _new_inner + '$'
+                text_color = _sub_color
+            else:
+                return Cell(
+                    value=text,
+                    style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
+                    rowspan=rowspan, colspan=colspan,
+                )
+        elif re.search(r'[_^]\{[^}]*\\color\b', _inner):
+            return Cell(
+                value=text,
+                style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
+                rowspan=rowspan, colspan=colspan,
+            )
+        # Check for \mathcal BEFORE cleaning - it gets converted to Unicode but should be preserved
+        # e.g. $\mathcal{I} \rightarrow \mathcal{P}$ should be kept as raw LaTeX
+        if re.search(r'\\mathcal\{', _inner):
+            return Cell(
+                value=text,
+                style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
+                rowspan=rowspan, colspan=colspan,
+            )
+        _cleaned = _clean_latex(_inner)
+        # If cleaned result still has LaTeX commands, keep as raw LaTeX
+        # (e.g. ${f_{\mathcal{D}}^{l-1}}'=...$)
+        # Note: _/^ alone (e.g. A_p, F_1) are OK — renderer wraps them in $...$
+        if re.search(r'\\[a-zA-Z]', _cleaned):
+            return Cell(
+                value=text,
+                style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
+                rowspan=rowspan, colspan=colspan,
+            )
+        _num = _try_parse_number(_cleaned)
+        return Cell(
+            value=_num if _num is not None else _cleaned,
+            style=CellStyle(bold=_fmt_bold, italic=_fmt_italic, underline=_fmt_underline,
+                            color=text_color, bg_color=bg_color, alignment=alignment),
+            rowspan=rowspan, colspan=colspan,
+        )
 
     # Extract custom color formatting: \gbf{...} → green bold, \rbf{...} → red bold
     gbf_bold = False
@@ -749,6 +1097,16 @@ def _parse_cell(text: str) -> Cell:
             text = text[:m.start()] + m.group(1) + text[m.end():]
             continue
         break
+
+    # If text contains \mathcal, preserve as raw LaTeX (Unicode conversion would break rendering)
+    if re.search(r'\\mathcal\{', text):
+        # Strip \arrayrulecolor{...} which may be prepended from \midrule lines
+        clean_text = re.sub(r'\\arrayrulecolor(?:\{[^}]*\}|[a-zA-Z]+)\s*', '', text).strip()
+        return Cell(
+            value=clean_text,
+            style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
+            rowspan=rowspan, colspan=colspan,
+        )
 
     # Parse formatting and extract value
     bold, italic, underline, diagbox_parts, value = _parse_formatting(text)
@@ -789,38 +1147,88 @@ def _parse_formatting(text: str) -> Tuple[bool, bool, bool, Optional[List[str]],
     diagbox_parts = None
 
     # Iteratively unwrap formatting commands
+    _SIZE_CMDS = r"(?:Large|large|LARGE|small|footnotesize|normalsize|tiny|huge|Huge|scriptsize|normalfont)"
     changed = True
     while changed:
         changed = False
         t = text.strip()
 
-        m = re.fullmatch(r"\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
+        # Strip leading LaTeX size commands (e.g. \Large \underline{...} → \underline{...})
+        m = re.fullmatch(rf"\\{_SIZE_CMDS}\s+(.*)", t, re.DOTALL)
+        if m:
+            text = m.group(1).strip()
+            changed = True
+            continue
+
+        # Old-style \bf / \it switch commands (e.g. \bf 94.00 → bold=True, value=94.00)
+        m = re.fullmatch(r"\\bf(?![a-zA-Z])\s*(.*)", t, re.DOTALL)
         if m:
             bold = True
             text = m.group(1).strip()
             changed = True
             continue
 
-        m = re.fullmatch(r"\\textit\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
+        m = re.fullmatch(r"\\it(?![a-zA-Z])\s*(.*)", t, re.DOTALL)
         if m:
             italic = True
             text = m.group(1).strip()
             changed = True
             continue
 
-        m = re.fullmatch(r"\\emph\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
+        # \makecell where every \\ line is \textbf{}: hoist bold to cell level
+        m = re.fullmatch(rf"\\makecell(?:\[[^\]]*\])?\{{({_NESTED})\}}", t, re.DOTALL)
         if m:
-            italic = True
-            text = m.group(1).strip()
+            inner = m.group(1)
+            line_parts = _split_by_double_backslash(inner)
+            _BF_LINE = re.compile(r"\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}")
+            if line_parts and all(_BF_LINE.fullmatch(lp.strip()) for lp in line_parts if lp.strip()):
+                bold = True
+                stripped = [
+                    _BF_LINE.fullmatch(lp.strip()).group(1) if lp.strip() else lp
+                    for lp in line_parts
+                ]
+                text = r"\makecell{" + r" \\ ".join(stripped) + "}"
+                changed = True
+                continue
+
+        m = re.fullmatch(r"\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(.*)", t, re.DOTALL)
+        if m:
+            bold = True
+            text = (m.group(1) + m.group(2)).strip()
             changed = True
             continue
 
-        m = re.fullmatch(r"\\(?:underline|ul)\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", t)
+        m = re.fullmatch(r"\\textit\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(.*)", t, re.DOTALL)
+        if m:
+            italic = True
+            text = (m.group(1) + m.group(2)).strip()
+            changed = True
+            continue
+
+        m = re.fullmatch(r"\\emph\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(.*)", t, re.DOTALL)
+        if m:
+            italic = True
+            text = (m.group(1) + m.group(2)).strip()
+            changed = True
+            continue
+
+        m = re.fullmatch(r"\\(?:underline|ul)\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(.*)", t, re.DOTALL)
         if m:
             underline = True
-            text = m.group(1).strip()
+            text = (m.group(1) + m.group(2)).strip()
             changed = True
             continue
+
+    # Multi-line bold: if every non-empty line is \textbf{...}, hoist bold to cell level
+    if "\n" in text:
+        _BF_LINE = re.compile(r"\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}")
+        lines = text.split("\n")
+        if all(_BF_LINE.fullmatch(l.strip()) for l in lines if l.strip()):
+            bold = True
+            text = "\n".join(
+                _BF_LINE.fullmatch(l.strip()).group(1) if l.strip() else l
+                for l in lines
+            )
 
     # Check for diagbox
     m = re.fullmatch(r"\\diagbox\{([^}]*)\}\{([^}]*)\}", text.strip())
@@ -843,79 +1251,102 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\textbackslash{}", "\\")
     # \begin{tabular}[c]{@{}c@{}}content\end{tabular} → content (nested tabular as makecell)
     text = re.sub(
-        r"\\begin\{tabular\}(?:\[[^\]]*\])?\{[^}]*\}(.*?)\\end\{tabular\}",
-        lambda m: m.group(1).replace("\\\\", "\n"),
+        rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}(.*?)\\end\{{tabular\}}",
+        lambda m: m.group(2).replace("\\\\", "\n"),
         text, flags=re.DOTALL,
     )
     # \makebox[width][pos]{content} → content
     text = re.sub(r"\\makebox(?:\[[^\]]*\])*\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", r"\1", text)
     # \makecell{Things-\\EEG} → Things-\nEEG (preserve line breaks as newline)
-    text = re.sub(r"\\makecell(?:\[[^\]]*\])?\{([^}]*)\}", lambda m: m.group(1).replace("\\\\", "\n"), text)
+    text = re.sub(rf"\\makecell(?:\[[^\]]*\])?\{{({_NESTED})\}}", lambda m: m.group(1).replace("\\\\", "\n"), text)
     # \specialcell[t]{content} → content (like makecell)
-    text = re.sub(r"\\specialcell(?:\[[^\]]*\])?\{([^}]*)\}", lambda m: m.group(1).replace("\\\\", "\n"), text)
+    text = re.sub(rf"\\specialcell(?:\[[^\]]*\])?\{{({_NESTED})\}}", lambda m: m.group(1).replace("\\\\", "\n"), text)
     # \shortstack{content} → content (like makecell)
     text = re.sub(r"\\shortstack(?:\[[^\]]*\])?\{([^}]*)\}", lambda m: m.group(1).replace("\\\\", "\n"), text)
+    # Join hyphenated line breaks: "Conven- \ntional" → "Conventional"
+    text = re.sub(r"- *\n *", "", text)
     # \var{$\pm$.005} → $\pm$.005 (strip wrapper, keep content)
     text = re.sub(r"\\var\{([^}]*)\}", r"\1", text)
+    # \textcolor{color}{content} → content (strip color, keep content)
+    for _ in range(5):
+        m = re.search(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text)
+        if not m:
+            break
+        text = text[:m.start()] + m.group(2) + text[m.end():]
+    # Arrow conversions BEFORE math stripping so $\Rightarrow$ adjacent to text works
+    # e.g. zh$\Rightarrow$en → zh⇒en (not zhRightarrowen)
+    text = re.sub(r"\\uparrow(?![a-zA-Z])", "↑", text)
+    text = re.sub(r"\\downarrow(?![a-zA-Z])", "↓", text)
+    text = re.sub(r"\\Downarrow(?![a-zA-Z])", "⇓", text)
+    text = re.sub(r"\\Uparrow(?![a-zA-Z])", "⇑", text)
+    text = re.sub(r"\\rightarrow(?![a-zA-Z])", "→", text)
+    text = re.sub(r"\\leftarrow(?![a-zA-Z])", "←", text)
+    text = re.sub(r"\\Rightarrow(?![a-zA-Z])", "⇒", text)
+    text = re.sub(r"\\Leftarrow(?![a-zA-Z])", "⇐", text)
     # Strip math mode: $D_\text{stage 1}$ → D_stage 1
-    text = re.sub(r"\$([^$]*)\$", lambda m: re.sub(r"\\text\{([^}]*)\}", r"\1", m.group(1)), text)
+    text = re.sub(r"(?<!\\)\$([^$]*)\$", lambda m: re.sub(r"\\text\{([^}]*)\}", r"\1", m.group(1)), text)
     # Math symbols
-    text = text.replace("\\pm", "±")
+    text = re.sub(r"\\pm(?![a-zA-Z])", "±", text)
     text = text.replace("$\\times$", "×")
-    text = text.replace("\\texttimes", "×")
-    text = text.replace("\\times", "×")
-    text = text.replace("\\textemdash", "—")
-    text = text.replace("\\uparrow", "↑")
-    text = text.replace("\\downarrow", "↓")
-    text = text.replace("\\Downarrow", "⇓")
-    text = text.replace("\\Uparrow", "⇑")
-    text = text.replace("\\rightarrow", "→")
-    text = text.replace("\\leftarrow", "←")
-    text = text.replace("\\Rightarrow", "⇒")
-    text = text.replace("\\Leftarrow", "⇐")
-    text = text.replace("\\alpha", "α")
-    text = text.replace("\\beta", "β")
-    text = text.replace("\\gamma", "γ")
+    text = re.sub(r"\\texttimes\b", "×", text)
+    text = re.sub(r"\\times(?![a-zA-Z])", "×", text)
+    text = re.sub(r"\\textemdash\b", "—", text)
+    text = re.sub(r"\\alpha\b", "α", text)
+    text = re.sub(r"\\beta\b", "β", text)
+    text = re.sub(r"\\gamma\b", "γ", text)
     text = re.sub(r"\\mu\b", "μ", text)
-    text = text.replace("\\sigma", "σ")
-    text = text.replace("\\delta", "δ")
-    text = text.replace("\\epsilon", "ε")
-    text = text.replace("\\theta", "θ")
-    text = text.replace("\\lambda", "λ")
-    text = text.replace("\\pi", "π")
-    text = text.replace("\\omega", "ω")
-    text = text.replace("\\tau", "τ")
-    text = text.replace("\\triangle", "△")
-    text = text.replace("\\star", "★")
-    text = text.replace("\\textdaggerdbl", "‡")
-    text = text.replace("\\textdagger", "†")
-    text = text.replace("\\dagger", "†")
-    text = text.replace("\\ddagger", "‡")
-    text = text.replace("\\ddag", "‡")
+    text = re.sub(r"\\sigma\b", "σ", text)
+    text = re.sub(r"\\delta\b", "δ", text)
+    text = re.sub(r"\\epsilon\b", "ε", text)
+    text = re.sub(r"\\theta\b", "θ", text)
+    text = re.sub(r"\\lambda\b", "λ", text)
+    text = re.sub(r"\\pi\b", "π", text)
+    text = re.sub(r"\\omega\b", "ω", text)
+    text = re.sub(r"\\tau\b", "τ", text)
+    text = re.sub(r"\\triangle\b", "△", text)
+    text = re.sub(r"\\star\b", "★", text)
+    text = re.sub(r"\\textdaggerdbl\b", "‡", text)
+    text = re.sub(r"\\textdagger\b", "†", text)
+    text = re.sub(r"\\dagger\b", "†", text)
+    text = re.sub(r"\\ddagger\b", "‡", text)
+    text = re.sub(r"\\ddag\b", "‡", text)
     text = re.sub(r"\\dag(?![a-zA-Z])", "†", text)
     text = re.sub(r"\\S(?![a-zA-Z])", "§", text)
-    text = text.replace("\\Sigma", "Σ")
-    text = text.replace("\\Omega", "Ω")
-    text = text.replace("\\sim", "∼")
-    text = text.replace("\\infty", "∞")
-    text = text.replace("\\leq", "≤")
-    text = text.replace("\\geq", "≥")
-    text = text.replace("\\neq", "≠")
-    text = text.replace("\\approx", "≈")
-    text = text.replace("\\cdots", "⋯")
+    text = re.sub(r"\\Sigma\b", "Σ", text)
+    text = re.sub(r"\\Omega(?![a-zA-Z])", "Ω", text)
+    text = re.sub(r"\\sim\b", "∼", text)
+    text = re.sub(r"\\infty\b", "∞", text)
+    text = re.sub(r"\\leq\b", "≤", text)
+    text = re.sub(r"\\geq\b", "≥", text)
+    text = re.sub(r"\\neq\b", "≠", text)
+    text = re.sub(r"\\approx\b", "≈", text)
+    text = re.sub(r"\\cdots\b", "⋯", text)
     text = re.sub(r"\\cdot(?![a-zA-Z])", "·", text)
-    text = text.replace("\\ell", "ℓ")
-    # Superscript: ^{content} → content, ^X → X
+    text = re.sub(r"\\ell\b", "ℓ", text)
+    # Superscript: annotation symbols drop ^, math superscripts preserve ^
     text = re.sub(r"\^\\text\{([^}]*)\}", r"\1", text)
     text = re.sub(r"\^\\dagger\b", "†", text)
     text = re.sub(r"\^\\ddagger\b", "‡", text)
     text = re.sub(r"\^\\ddag\b", "‡", text)
     text = re.sub(r"\^\\S\b", "§", text)
     text = re.sub(r"\^\\star\b", "★", text)
+    # Braced annotation symbols: ^{\dagger} → †, ^{*} → *
+    text = re.sub(r"\^\{\\dagger\}", "†", text)
+    text = re.sub(r"\^\{\\ddagger\}", "‡", text)
+    text = re.sub(r"\^\{\\star\}", "★", text)
+    text = re.sub(r"\^\{\\S\}", "§", text)
+    text = re.sub(r"\^\{\*\}", "*", text)
     text = re.sub(r"\^\\mathrm\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"\^\{([^}]*)\}", r"\1", text)
-    text = re.sub(r"\^([a-zA-Z0-9*†‡§★]+)", r"\1", text)
+    # General superscript: preserve ^ for math readability
+    text = re.sub(r"\^\{([^}])\}", r"^\1", text)  # ^{T} → ^T
+    text = re.sub(r"\^\{([^}]+)\}", r"^(\1)", text)  # ^{l-1} → ^(l-1)
     # Subscript: _{content} → _content, _X → _X (preserve underscore)
+    # Special case: _{\pm...} or _{±...} → ±... (drop underscore, treat as ± annotation)
+    text = re.sub(r"_\{\\pm(?![a-zA-Z])([^}]*)\}", r"±\1", text)
+    text = re.sub(r"_\{±([^}]*)\}", r"±\1", text)
+    # Special case: _{↓...} or _{↑...} → ↓... (drop underscore, arrow is visual formatting)
+    text = re.sub(r"_\{([↓↑⇓⇑][^}]*)\}", r"\1", text)
+    text = re.sub(r"_([↓↑⇓⇑])", r"\1", text)
     text = re.sub(r"(?<!\\)_\{([^}]*)\}", r"_\1", text)
     text = re.sub(r"(?<!\\)_([a-zA-Z0-9])(?![a-zA-Z0-9])", r"_\1", text)
     # Special symbols
@@ -934,6 +1365,7 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\ding\s*5[56]", "✗", text)
     text = text.replace("\\bigstar", "★")
     text = text.replace("\\blacktriangledown", "▼")
+    text = text.replace("\\blacksquare", "■")
     text = text.replace("\\compareyes", "✓")
     text = text.replace("\\comparepartially", "∼")
     text = text.replace("\\compareno", "✗")
@@ -963,6 +1395,8 @@ def _clean_latex(text: str) -> str:
     text = text.replace("~", " ")
     # Remove citations: \citep{...}, \cite{...}, \citet{...}, \citeyearpar{...}, etc.
     text = re.sub(r"~?\\cite[a-z]*\{[^}]*\}", "", text)
+    # Remove \- (LaTeX soft hyphen / discretionary hyphen)
+    text = text.replace("\\-", "")
     # Remove \\ inside cells (line break in makecell) — must come before '\ ' conversion
     text = text.replace("\\\\", " ")
     # Remove \, and other spacing; convert '\ ' (forced space) to space
@@ -971,14 +1405,24 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\xspace\b\s*", "", text)
     text = re.sub(r"\\q?quad\s*", " ", text)
     # Remove font style commands: \bf, \rm, \it, \tt, \sc, \bfseries, \boldmath, etc.
-    text = re.sub(r"\\(bf|rm|it|tt|sc|bfseries|rmfamily|itshape|ttfamily|scshape|boldmath|unboldmath|bm)\b\s*", "", text)
+    text = re.sub(r"\\(bfseries|rmfamily|itshape|ttfamily|scshape|boldmath|unboldmath)\b\s*", "", text)
+    text = re.sub(r"\\(bf|rm|it|tt|sc|bm)(?![a-zA-Z])\s*", "", text)
     # Remove \textsc{...}, \texttt{...}, \textrm{...}, \textit{...}, \textbf{...}
     text = re.sub(r"\\text(sc|tt|rm|it|bf|sf|sl)\{([^}]*)\}", r"\2", text)
     # Remove \text{content} (plain, no style suffix)
     text = re.sub(r"\\text\{([^}]*)\}", r"\1", text)
-    # Remove \textsuperscript{...}
-    text = re.sub(r"\\textsuperscript\{([^}]*)\}", r"\1", text)
-    # Remove \mathbf{...}, \mathcal{...}, etc.
+    # Remove \textsuperscript{...} (supports nested braces)
+    text = re.sub(rf"\\textsuperscript\{{({_NESTED})\}}", r"\1", text)
+    # \mathcal{X} → Unicode script letters (common in ML papers)
+    _mathcal_map = {
+        "A": "𝒜", "B": "ℬ", "C": "𝒞", "D": "𝒟", "E": "ℰ", "F": "ℱ",
+        "G": "𝒢", "H": "ℋ", "I": "ℐ", "J": "𝒥", "K": "𝒦", "L": "ℒ",
+        "M": "ℳ", "N": "𝒩", "O": "𝒪", "P": "𝒫", "Q": "𝒬", "R": "ℛ",
+        "S": "𝒮", "T": "𝒯", "U": "𝒰", "V": "𝒱", "W": "𝒲", "X": "𝒳",
+        "Y": "𝒴", "Z": "𝒵",
+    }
+    text = re.sub(r"\\mathcal\{([A-Z])\}", lambda m: _mathcal_map.get(m.group(1), m.group(1)), text)
+    # Remove \mathbf{...}, \mathcal{...} (remaining multi-char or lowercase), etc.
     text = re.sub(r"\\math(bf|cal|it|rm|tt|sf)\{([^}]*)\}", r"\2", text)
     text = re.sub(r"\\boldsymbol\{([^}]*)\}", r"\1", text)
     # Remove \mathrm{...}, \textrm{...}
@@ -1021,12 +1465,15 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\hbarthree\{([^}]*)\}\{([^}]*)\}\{([^}]*)\}", r"\1/\2/\3", text)
     # Remove custom commands
     # Custom ranking/color prefix commands: \firstcolor0.74 → 0.74, \grel 55.1 → 55.1
-    text = re.sub(r"\\(firstcolor|secondcolor|gold|silve|bronze|grel|gbf)(?![a-zA-Z])\s*", "", text)
+    text = re.sub(r"\\(firstBest|secondBest|firstcolor|secondcolor|gold|silve|bronze|grel|gbf)(?![a-zA-Z])\s*", "", text)
     # Short prefix commands: \fs53.60 → 53.60, \nd96.5 → 96.5, \ok 90.0 → 90.0
     text = re.sub(r"\\(fs|nd|rd|ok|no)(?![a-zA-Z])\s*", "", text)
     # \up8.09 → ↑8.09, \down0.45 → ↓0.45
     text = re.sub(r"\\up(?![a-zA-Z])\s*", "↑", text)
     text = re.sub(r"\\down(?![a-zA-Z])\s*", "↓", text)
+    # \redup{0.66} → ↑0.66, \reddown{0.66} → ↓0.66 (custom arrow commands)
+    text = re.sub(r"\\redup\{([^}]*)\}", r"↑\1", text)
+    text = re.sub(r"\\reddown\{([^}]*)\}", r"↓\1", text)
     # Logo commands → text labels (these are content, not decoration)
     text = re.sub(r"\\languagelogos?\b\s*", "[Lang]", text)
     text = re.sub(r"\\imagelogo\b\s*", "[Img]", text)
@@ -1036,7 +1483,7 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\raisebox\{[^}]*\}(?:\[[^\]]*\])*\{([^}]*)\}", r"\1", text)
     text = re.sub(r"\\raisebox[\d.]+\w*(?:\[[^\]]*\])*\s*", "", text)
     # Remove \parbox{width}{content} or \parbox[align]{width}{content}
-    text = re.sub(r"\\parbox(?:\[[^\]]*\])?\{[^}]*\}\{([^}]*)\}", r"\1", text)
+    text = re.sub(rf"\\parbox(?:\[[^\]]*\])?\{{[^}}]*\}}\{{({_NESTED})\}}", r"\1", text)
     text = re.sub(r"\\parbox[\d.]+\w*\s*", "", text)
     # Remove \begintabular[...]{...} (handle nested braces in column spec)
     text = re.sub(rf"\\begintabular(?:\[[^\]]*\])?\{{({_NESTED})\}}\s*", "", text)
@@ -1089,6 +1536,10 @@ def _try_parse_number(text: str) -> Optional[float]:
     """Try to parse text as a number. Returns float or None.
 
     Note: Strings starting with '+' are NOT parsed as numbers to preserve the sign.
+    Decimal strings (containing '.') are kept as strings to preserve trailing zeros:
+    "94.00" must not become 94.0, which would render as "94" after xlsx roundtrip.
+    Only integer strings (e.g. "94", "-3") are converted to float so that openpyxl
+    reads them back as int and str(int) reproduces the original exactly.
     """
     t = text.strip()
     if not t:
@@ -1096,7 +1547,10 @@ def _try_parse_number(text: str) -> Optional[float]:
     # Preserve strings starting with '+' (e.g., '+1.12') as strings
     if t.startswith('+'):
         return None
-    # Handle .451 style (no leading zero)
+    # Preserve decimal strings to avoid losing trailing zeros through xlsx roundtrip.
+    # "94.00" → float → 94.0 → xlsx → int(94) → "94" loses precision.
+    if '.' in t:
+        return None
     try:
         return float(t)
     except ValueError:
