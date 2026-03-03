@@ -58,7 +58,18 @@ pubtab.preview("table.tex", dpi=300)
 
 # LaTeX → Excel
 pubtab.tex_to_excel("table.tex", "output.xlsx")
+
+# Multi-table support
+tables = pubtab.read_tex_multi("paper.tex")  # Parse multiple tables
+pubtab.write_excel_multi(tables, "output.xlsx")  # Write to separate sheets
 ```
+
+## Visual Example
+
+<div align="center">
+  <img src="examples/preview_example.png" alt="Conversion Example" width="600"/>
+  <p><em>LaTeX table rendered with pubtab — preserving colors, math expressions, and formatting</em></p>
+</div>
 
 ## Features
 
@@ -91,21 +102,27 @@ Reads `.xlsx` (openpyxl) and `.xls` (xlrd) files, producing publication-quality 
 
 Parses LaTeX tables back to Excel with robust command support:
 
-- `\multicolumn`, `\multirow` (including negative values)
-- `\textbf`, `\textit`, `\underline`, `\emph`
-- `\textcolor`, `\cellcolor`, `\rowcolor`, `\rowcolors`
-- `\diagbox`, `\makecell`, `\rotatebox`
-- `\newcommand`/`\renewcommand` expansion (up to 10 rounds)
-- `\definecolor` custom color parsing
-- 80+ LaTeX symbol → Unicode mappings (±, ×, →, ✓, α-ω, etc.)
-- Nested tabular → `\makecell` conversion
+- **Multi-table support**: `read_tex_multi()` parses multiple tables from one `.tex` file
+- **Cell commands**: `\multicolumn`, `\multirow` (including negative values)
+- **Text styling**: `\textbf`, `\textit`, `\underline`, `\emph`
+- **Color commands**: `\textcolor`, `\cellcolor`, `\rowcolor`, `\rowcolors`
+  - Custom color mixing: `mycolor!50`, `red!30!blue`
+  - Color extraction from math mode subscripts
+- **Layout commands**: `\diagbox`, `\makecell`, `\rotatebox`
+- **Macro expansion**: `\newcommand`/`\renewcommand` (up to 10 rounds)
+- **Custom colors**: `\definecolor` parsing with RGB/HTML/named colors
+- **Math expressions**: Enhanced detection and Unicode conversion
+  - 80+ LaTeX symbols → Unicode (±, ×, →, ✓, α-ω, etc.)
+  - Subscripts/superscripts with proper formatting
+- **Nested structures**: Nested tabular → `\makecell` conversion
 
-### PNG Preview
+### PNG/PDF Preview
 
-Generate publication-quality PNG previews directly from `.tex` files:
+Generate publication-quality previews directly from `.tex` files:
 
 ```bash
-pubtab preview table.tex --dpi 300
+pubtab preview table.tex --dpi 300           # PNG output (default)
+pubtab preview table.tex -o output.pdf       # PDF output
 ```
 
 **TinyTeX auto-installation:** If no system `pdflatex` is found, pubtab automatically downloads and installs TinyTeX (~90 MB) to `~/.pubtab/TinyTeX/`, including required LaTeX packages (booktabs, multirow, xcolor, etc.). This is a one-time setup.
@@ -146,6 +163,7 @@ Options:
   --resizebox TEXT           Resize width (e.g. 0.8\textwidth)
   --col-spec TEXT            Column spec (e.g. lccc)
   --span-columns            Use table* for two-column
+  --upright-scripts         Keep subscripts/superscripts upright (no italic)
   --preview                 Generate PNG preview
   --dpi INTEGER             Preview DPI [default: 300]
   --header-sep TEXT          Custom header separator

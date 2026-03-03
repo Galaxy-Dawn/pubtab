@@ -58,7 +58,18 @@ pubtab.preview("table.tex", dpi=300)
 
 # LaTeX → Excel
 pubtab.tex_to_excel("table.tex", "output.xlsx")
+
+# 多表格支持
+tables = pubtab.read_tex_multi("paper.tex")  # 解析多个表格
+pubtab.write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
 ```
+
+## 效果展示
+
+<div align="center">
+  <img src="examples/preview_example.png" alt="转换示例" width="600"/>
+  <p><em>pubtab 渲染的 LaTeX 表格 — 完整保留颜色、数学表达式和格式</em></p>
+</div>
 
 ## 功能
 
@@ -91,21 +102,27 @@ pubtab.tex_to_excel("table.tex", "output.xlsx")
 
 将 LaTeX 表格解析回 Excel，支持丰富的命令：
 
-- `\multicolumn`、`\multirow`（含负值）
-- `\textbf`、`\textit`、`\underline`、`\emph`
-- `\textcolor`、`\cellcolor`、`\rowcolor`、`\rowcolors`
-- `\diagbox`、`\makecell`、`\rotatebox`
-- `\newcommand`/`\renewcommand` 展开（最多 10 轮）
-- `\definecolor` 自定义颜色解析
-- 80+ LaTeX 符号 → Unicode 映射（±、×、→、✓、α-ω 等）
-- 嵌套 tabular → `\makecell` 转换
+- **多表格支持**：`read_tex_multi()` 从单个 `.tex` 文件解析多个表格
+- **单元格命令**：`\multicolumn`、`\multirow`（含负值）
+- **文本样式**：`\textbf`、`\textit`、`\underline`、`\emph`
+- **颜色命令**：`\textcolor`、`\cellcolor`、`\rowcolor`、`\rowcolors`
+  - 自定义颜色混合：`mycolor!50`、`red!30!blue`
+  - 数学模式下标中的颜色提取
+- **布局命令**：`\diagbox`、`\makecell`、`\rotatebox`
+- **宏展开**：`\newcommand`/`\renewcommand`（最多 10 轮）
+- **自定义颜色**：`\definecolor` 解析（支持 RGB/HTML/命名颜色）
+- **数学表达式**：增强的检测和 Unicode 转换
+  - 80+ LaTeX 符号 → Unicode（±、×、→、✓、α-ω 等）
+  - 上下标的正确格式化
+- **嵌套结构**：嵌套 tabular → `\makecell` 转换
 
-### PNG 预览
+### PNG/PDF 预览
 
-直接从 `.tex` 文件生成出版级 PNG 预览：
+直接从 `.tex` 文件生成出版级预览：
 
 ```bash
-pubtab preview table.tex --dpi 300
+pubtab preview table.tex --dpi 300           # PNG 输出（默认）
+pubtab preview table.tex -o output.pdf       # PDF 输出
 ```
 
 **TinyTeX 自动安装：** 若系统未找到 `pdflatex`，pubtab 会自动下载安装 TinyTeX（约 90 MB）到 `~/.pubtab/TinyTeX/`，并安装所需 LaTeX 包（booktabs、multirow、xcolor 等）。仅需一次。
@@ -146,6 +163,7 @@ Options:
   --resizebox TEXT           缩放宽度（如 0.8\textwidth）
   --col-spec TEXT            列格式（如 lccc）
   --span-columns            使用 table* 双栏跨页
+  --upright-scripts         保持上下标直立（不倾斜）
   --preview                 生成 PNG 预览
   --dpi INTEGER             预览 DPI [默认: 300]
   --header-sep TEXT          自定义表头分隔符
