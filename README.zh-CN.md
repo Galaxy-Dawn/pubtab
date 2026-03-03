@@ -225,7 +225,7 @@ pubtab/
 
 ## 贡献
 
-欢迎在 [GitHub](https://github.com/gaoruizhang/pubtab) 提交 Issue 和 Pull Request。
+欢迎在 [GitHub](https://github.com/Galaxy-Dawn/pubtab) 提交 Issue 和 Pull Request。
 
 ## 许可证
 

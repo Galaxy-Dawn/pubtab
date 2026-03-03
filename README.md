@@ -225,7 +225,7 @@ pubtab/
 
 ## Contributing
 
-Issues and pull requests are welcome at [GitHub](https://github.com/gaoruizhang/pubtab).
+Issues and pull requests are welcome at [GitHub](https://github.com/Galaxy-Dawn/pubtab).
 
 ## License
 
