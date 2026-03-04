@@ -18,7 +18,14 @@ def load_config(path: Union[str, Path]) -> Tuple[Dict[str, Any], None]:
     """
     path = Path(path)
     with open(path) as f:
-        cfg = yaml.safe_load(f)
+        cfg_raw = yaml.safe_load(f)
+
+    if cfg_raw is None:
+        cfg: Dict[str, Any] = {}
+    elif isinstance(cfg_raw, dict):
+        cfg = cfg_raw
+    else:
+        raise ValueError("Config YAML root must be a mapping/object.")
 
     kwargs: Dict[str, Any] = {}
 

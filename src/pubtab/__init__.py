@@ -10,13 +10,32 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 from .models import Cell, SpacingConfig, TableData
-from .reader import read_excel
+from .reader import list_excel_sheets, read_excel
 from .renderer import render
 
 __all__ = ["xlsx2tex", "preview", "compile_pdf", "tex_to_excel", "SpacingConfig"]
 
 # Sentinel for detecting unset kwargs
 _UNSET = object()
+
+
+def _build_sheet_output_paths(
+    input_file: Union[str, Path],
+    output: Union[str, Path],
+    sheet_count: int,
+) -> List[Path]:
+    """Build output paths for one or multiple sheet exports."""
+    output_path = Path(output)
+    if sheet_count <= 1:
+        return [output_path]
+
+    if output_path.suffix.lower() == ".tex":
+        base_dir = output_path.parent
+        base_stem = output_path.stem
+    else:
+        base_dir = output_path
+        base_stem = Path(input_file).stem
+    return [base_dir / f"{base_stem}_sheet{i + 1:02d}.tex" for i in range(sheet_count)]
 
 
 def xlsx2tex(
@@ -48,11 +67,12 @@ def xlsx2tex(
     wide: bool = _UNSET,
     raw_caption: bool = _UNSET,
 ) -> str:
-    """Convert an Excel file to LaTeX and write to .tex file.
+    """Convert an Excel file to LaTeX and write .tex file(s).
 
     Args:
         input_file: Path to .xlsx or .xls file.
-        output: Output .tex file path.
+        output: Output .tex file path. If multiple sheets are exported, files
+            are saved as `stem_sheetNN.tex` in the same directory.
         config: Path to YAML config file (explicit kwargs override config values).
         sheet: Sheet name or 0-based index.
         theme: Theme name.
@@ -77,7 +97,7 @@ def xlsx2tex(
         raw_caption: Deprecated, ignored.
 
     Returns:
-        LaTeX table string.
+        LaTeX table string of the first exported sheet.
     """
     # Defaults
     defaults = dict(
@@ -115,45 +135,58 @@ def xlsx2tex(
     if p["cell_formatter"] is None and cfg_formatter is not None:
         p["cell_formatter"] = cfg_formatter
 
-    # Read Excel
-    table = read_excel(input_file, sheet=p["sheet"], header_rows=p["header_rows"])
+    if p["sheet"] is None:
+        sheet_names = list_excel_sheets(input_file)
+        sheet_selectors: List[Union[str, int]] = list(sheet_names)
+    else:
+        sheet_selectors = [p["sheet"]]
 
-    if p["custom_header"] is not None:
-        data_rows = table.cells[table.header_rows:]
-        if p["cell_formatter"]:
-            data_rows = [
-                [p["cell_formatter"](r, c, cell) for c, cell in enumerate(row)]
-                for r, row in enumerate(data_rows)
-            ]
-        all_cells = p["custom_header"] + data_rows
-        hc = len(p["custom_header"])
-        nc = p["num_cols"] or table.num_cols
-        table = TableData(
-            cells=all_cells, num_rows=len(all_cells), num_cols=nc,
-            header_rows=hc, group_separators=p["group_separators"] or {},
+    output_paths = _build_sheet_output_paths(input_file, output, len(sheet_selectors))
+    tex_outputs: List[str] = []
+
+    for idx, sheet_selector in enumerate(sheet_selectors):
+        table = read_excel(input_file, sheet=sheet_selector, header_rows=p["header_rows"])
+
+        if p["custom_header"] is not None:
+            data_rows = table.cells[table.header_rows:]
+            if p["cell_formatter"]:
+                data_rows = [
+                    [p["cell_formatter"](r, c, cell) for c, cell in enumerate(row)]
+                    for r, row in enumerate(data_rows)
+                ]
+            all_cells = p["custom_header"] + data_rows
+            hc = len(p["custom_header"])
+            nc = p["num_cols"] or table.num_cols
+            table = TableData(
+                cells=all_cells, num_rows=len(all_cells), num_cols=nc,
+                header_rows=hc, group_separators=p["group_separators"] or {},
+            )
+        elif p["group_separators"]:
+            table = TableData(
+                cells=table.cells, num_rows=table.num_rows, num_cols=table.num_cols,
+                header_rows=table.header_rows, group_separators=p["group_separators"],
+            )
+
+        tex = render(
+            table, theme=p["theme"], caption=p["caption"], label=p["label"],
+            position=p["position"], spacing=p["spacing"],
+            font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
+            header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
+            span_columns=p["span_columns"], upright_scripts=p["upright_scripts"],
         )
-    elif p["group_separators"]:
-        table = TableData(
-            cells=table.cells, num_rows=table.num_rows, num_cols=table.num_cols,
-            header_rows=table.header_rows, group_separators=p["group_separators"],
-        )
 
-    tex = render(
-        table, theme=p["theme"], caption=p["caption"], label=p["label"],
-        position=p["position"], spacing=p["spacing"],
-        font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
-        header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
-        span_columns=p["span_columns"], upright_scripts=p["upright_scripts"],
-    )
-    Path(output).write_text(tex)
+        output_path = output_paths[idx]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(tex)
+        tex_outputs.append(tex)
 
-    if p["preview"]:
-        from ._preview import preview as _preview
-        png_path = Path(output).with_suffix(".png")
-        _preview(output, output=png_path, theme=p["theme"], dpi=p["dpi"],
-                 preamble=p["preamble"])
+        if p["preview"]:
+            from ._preview import preview as _preview
+            png_path = output_path.with_suffix(".png")
+            _preview(output_path, output=png_path, theme=p["theme"], dpi=p["dpi"],
+                     preamble=p["preamble"])
 
-    return tex
+    return tex_outputs[0] if tex_outputs else ""
 
 
 def preview(

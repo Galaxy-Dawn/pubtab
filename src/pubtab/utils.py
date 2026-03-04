@@ -166,7 +166,8 @@ def _latex_color_to_hex(color: str) -> str | None:
     # xcolor mixing: "color!percent"
     if "!" in color:
         parts = color.split("!")
-        base = _LATEX_COLORS.get(parts[0].lower())
+        base_name = parts[0].strip()
+        base = _LATEX_COLORS.get(base_name) or _LATEX_COLORS.get(base_name.lower())
         if base and len(parts) >= 2:
             try:
                 pct = float(parts[1]) / 100.0
@@ -179,7 +180,7 @@ def _latex_color_to_hex(color: str) -> str | None:
             return f"#{r:02X}{g:02X}{b:02X}"
         return None
     # Named color
-    hex_val = _LATEX_COLORS.get(color.lower())
+    hex_val = _LATEX_COLORS.get(color) or _LATEX_COLORS.get(color.lower())
     if hex_val:
         return f"#{hex_val}"
     return None

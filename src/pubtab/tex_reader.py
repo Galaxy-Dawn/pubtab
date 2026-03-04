@@ -66,48 +66,109 @@ def _normalize_color(raw: str, spec: str = "") -> str | None:
     return _custom_colors.get(raw_stripped) or _latex_color_to_hex(raw)
 
 
-def _trim_trailing_empty_cols(rows: List[List[Cell]], num_cols: int) -> int:
-    """Remove trailing columns that are empty in all rows.
+def _cell_has_payload(cell: Cell) -> bool:
+    """Return True if a cell has semantic payload (ignoring pure styling)."""
+    v = cell.value
+    if isinstance(v, str):
+        if v.strip():
+            return True
+    elif v not in ("", None):
+        return True
+    if cell.rich_segments:
+        return True
+    if cell.style.diagbox:
+        return True
+    return False
 
-    A column is "used" if a non-empty cell starts there, or a non-full-width
-    colspan from an earlier column covers it.
+
+def _trim_all_empty_cols(rows: List[List[Cell]], num_cols: int) -> int:
+    """Remove only trailing globally empty columns.
+
+    Internal empty spacer columns are preserved to avoid schema/layout changes.
+    A column is considered used if any cell with visible payload covers it.
     """
+    def _col_has_payload_in_row(row: List[Cell], col_idx: int) -> bool:
+        if col_idx < 0 or col_idx >= len(row):
+            return False
+        cell = row[col_idx]
+        if _cell_has_payload(cell):
+            return True
+        # If this slot is a horizontal placeholder, attribute payload to the
+        # left master cell when the master span covers this column.
+        for i in range(col_idx - 1, -1, -1):
+            left = row[i]
+            if left.colspan <= 1:
+                continue
+            if i + left.colspan - 1 >= col_idx:
+                return _cell_has_payload(left)
+        return False
+
+    def _shrink_master_span_crossing_col(row: List[Cell], col_idx: int) -> None:
+        for i, cell in enumerate(row):
+            if cell.colspan <= 1:
+                continue
+            if i <= col_idx <= i + cell.colspan - 1:
+                row[i] = Cell(
+                    value=cell.value,
+                    style=cell.style,
+                    rowspan=cell.rowspan,
+                    colspan=max(1, cell.colspan - 1),
+                    rich_segments=cell.rich_segments,
+                )
+                break
+
     while num_cols > 1:
         col = num_cols - 1
-        col_used = False
-        for row in rows:
-            pos = 0
-            for cell in row:
-                end = pos + cell.colspan
-                if pos <= col < end and cell.value not in ("", None):
-                    # Full-width span doesn't count
-                    if cell.colspan < num_cols:
-                        col_used = True
-                        break
-                pos = end
-                if pos > col:
-                    break
-            if col_used:
-                break
+        col_used = any(_col_has_payload_in_row(row, col) for row in rows)
         if col_used:
             break
+        # Remove rightmost empty logical column and shrink any spanning masters.
         for row in rows:
-            if len(row) > col:
+            _shrink_master_span_crossing_col(row, col)
+            if 0 <= col < len(row):
                 row.pop(col)
-            for i, cell in enumerate(row):
-                if cell.colspan >= num_cols:
-                    row[i] = Cell(value=cell.value, style=cell.style,
-                                  rowspan=cell.rowspan, colspan=num_cols - 1,
-                                  rich_segments=cell.rich_segments)
         num_cols -= 1
     return num_cols
+
+
+def _drop_spacer_rows(rows: List[List[Cell]], hline_before: List[bool]) -> Tuple[List[List[Cell]], List[bool]]:
+    """Drop fully-empty spacer rows that are not required by active rowspans."""
+    if not rows:
+        return rows, hline_before
+
+    covered_rows = set()
+    for r, row in enumerate(rows):
+        for cell in row:
+            # Empty multirow masters are often structural artifacts (e.g., from
+            # malformed header placeholders) and should not force spacer rows.
+            if cell.rowspan > 1 and _cell_has_payload(cell):
+                for rr in range(r + 1, min(len(rows), r + cell.rowspan)):
+                    covered_rows.add(rr)
+
+    keep_indices = []
+    for r, row in enumerate(rows):
+        is_empty_row = all(not _cell_has_payload(cell) for cell in row)
+        if is_empty_row and r not in covered_rows:
+            continue
+        keep_indices.append(r)
+
+    new_rows = [rows[i] for i in keep_indices]
+    new_hline = [hline_before[i] for i in keep_indices]
+    return new_rows, new_hline
+
+
+def _row_payload_count(row: List[Cell], start_col: int = 0) -> int:
+    """Count cells with semantic payload from start_col to end."""
+    if start_col >= len(row):
+        return 0
+    return sum(1 for cell in row[start_col:] if _cell_has_payload(cell))
 
 
 def _merge_visual_multirow(rows: List[List[Cell]], header_rows: int, hline_before: List[bool]) -> None:
     """Merge visual multirow patterns in first column.
 
     For each non-empty cell in column A (after header), expands it to cover
-    adjacent empty cells with the same bg_color. Stops at \\hline boundaries.
+    adjacent empty cells in visual continuation rows. Stops at \\hline boundaries.
 
     This handles LaTeX tables that use visual positioning (placing label in
     middle row) instead of explicit \\multirow commands.
@@ -120,11 +181,13 @@ def _merge_visual_multirow(rows: List[List[Cell]], header_rows: int, hline_befor
     # Find non-empty cells in column A after header
     for r in range(header_rows, num_rows):
         cell = rows[r][0]
-        if not cell.value or cell.rowspan > 1:
+        if not _cell_has_payload(cell) or cell.rowspan > 1:
             continue
 
         bg_color = cell.style.bg_color
-        if not bg_color:
+        # For uncolored groups, require a data-like row to avoid merging
+        # section/title rows that only have one payload cell.
+        if not bg_color and _row_payload_count(rows[r], 1) < 2:
             continue
 
         # Expand upward (stop at header or hline)
@@ -134,16 +197,32 @@ def _merge_visual_multirow(rows: List[List[Cell]], header_rows: int, hline_befor
             if hline_before[top]:
                 break
             above = rows[top - 1][0]
-            if above.value or above.style.bg_color != bg_color:
+            if _cell_has_payload(above):
                 break
+            if bg_color:
+                if above.style.bg_color != bg_color:
+                    break
+            else:
+                if above.style.bg_color:
+                    break
+                if _row_payload_count(rows[top - 1], 1) < 2:
+                    break
             top -= 1
 
         # Expand downward (stop at hline)
         bottom = r
         while bottom < num_rows - 1:
             below = rows[bottom + 1][0]
-            if below.value or below.style.bg_color != bg_color:
+            if _cell_has_payload(below):
                 break
+            if bg_color:
+                if below.style.bg_color != bg_color:
+                    break
+            else:
+                if below.style.bg_color:
+                    break
+                if _row_payload_count(rows[bottom + 1], 1) < 2:
+                    break
             # Stop if there's an hline before the next row
             if bottom + 1 < len(hline_before) and hline_before[bottom + 1]:
                 break
@@ -188,6 +267,15 @@ def read_tex(
         cmds.update(newcommands)
     if cmds:
         tex = _expand_newcommands(tex, cmds)
+    # Repair common docx-induced line-break corruption:
+    # `\\\Word` should be `\\Word` (row break + next-row text), not `\Word` command residue.
+    # Keep rule commands (`\\\hline`, `\\\cline`, ...) intact to avoid turning
+    # them into plain text residues like `hline` / `cline2-3`.
+    tex = re.sub(
+        r"(?:\\){3}(?=(?!hline\b|cline\b|cdashline\b|cdashlinelr\b|cmidrule\b|toprule\b|midrule\b|bottomrule\b)[A-Za-z0-9(])",
+        r"\\\\",
+        tex,
+    )
     # Extract tabular body
     body = _extract_tabular_body(tex)
     if body is None:
@@ -196,6 +284,19 @@ def read_tex(
     # Strip \iffalse...\fi blocks before row splitting (they can span multiple rows)
     body = re.sub(r"\\iffalse\b.*?\\fi\b\s*", "", body, flags=re.DOTALL)
 
+    # Normalize malformed escapes from docx/OCR exports.
+    # Keep this conservative to avoid collapsing valid row boundaries like
+    # `...\\#Tag & ...` where the next row intentionally starts with `\#...`.
+    # 1) Numeric percent patterns like `27.0\\%` -> `27.0\%`.
+    body = re.sub(r"(?<=[0-9])\\\\(?=%)", r"\\", body)
+    # 2) Cell-start hash patterns like `& \\#P` -> `& \#P` (common in headers).
+    body = re.sub(r"(^|[&\n])(\s*)\\\\(?=#)", r"\1\2\\", body)
+    # `\\&` is ambiguous:
+    # - valid row boundary can be written as `...\\&...` (next row starts with empty col)
+    # - malformed escaped ampersand appears as `C\\&L` inside one cell.
+    # Only normalize the latter (alnum on both sides) to avoid row-collapse regressions.
+    body = re.sub(r"(?<=[A-Za-z0-9])\\\\&(?=[A-Za-z0-9])", r"\\&", body)
+
     # Replace nested \begin{tabular}...\end{tabular} with \makecell{...}
     # so the \\ inside doesn't get treated as a row separator
     body = re.sub(
@@ -203,6 +304,20 @@ def read_tex(
         lambda m: r"\makecell{" + m.group(2).strip() + "}",
         body, flags=re.DOTALL,
     )
+
+    # Drop decorative separator artifacts (e.g. `-\/-\/-...`) that may leak
+    # from wrapped comment blocks and pollute the first data column.
+    body = re.sub(
+        r"(?m)^\s*[A-Za-z][A-Za-z .'\-]{0,40}\s*\n\s*(?:-\\/\s*){6,}[^\n]*\n?",
+        "",
+        body,
+    )
+    body = re.sub(
+        r"(?m)^\s*[A-Za-z][A-Za-z .'\-]{0,40}\s+(?:-\\/\s*){6,}[^\n]*\n?",
+        "",
+        body,
+    )
+    body = re.sub(r"(?m)^\s*(?:-\\/\s*){6,}[^\n]*$", "", body)
 
     # Split into rows (by \\), filter out rules, track hline positions
     raw_rows_with_hline = _split_rows_with_hline(body)
@@ -314,12 +429,15 @@ def read_tex(
             row[0] = Cell(value=c0.value, style=c0.style,
                           rowspan=c0.rowspan, colspan=num_cols)
 
+    # Drop purely visual spacer rows before final shape cleanup
+    expanded, hline_before = _drop_spacer_rows(expanded, hline_before)
+
     # Merge visual multirow patterns in first column (e.g., topology labels spanning multiple rows)
     # Detect groups of consecutive rows with same bg_color in column A, with one label in the group
     _merge_visual_multirow(expanded, header_rows, hline_before)
 
-    # Trim trailing empty columns (e.g., colspec has 14 cols but data only uses 7)
-    num_cols = _trim_trailing_empty_cols(expanded, num_cols)
+    # Trim globally empty columns (e.g., empty separator columns from malformed input)
+    num_cols = _trim_all_empty_cols(expanded, num_cols)
 
     return TableData(
         cells=expanded,
@@ -452,11 +570,19 @@ def _expand_newcommands(tex: str, cmds: Dict[str, Tuple[int, str]]) -> str:
     """Expand \\newcommand definitions in tex, up to 10 rounds."""
     if not cmds:
         return tex
+
+    # Pattern for nested braces (up to 4 levels deep)
+    _NESTED = r"(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\})*"
+
+    # Remove \newcommand and \def definitions to avoid expanding commands inside them
+    tex = re.sub(rf'\\newcommand\s*\{{[^}}]+\}}\s*(?:\[[^\]]*\])?\s*\{{({_NESTED})\}}', '', tex)
+    tex = re.sub(rf'\\def\\[a-zA-Z]+\s*\{{({_NESTED})\}}', '', tex)
+
     sorted_cmds = sorted(cmds.items(), key=lambda x: len(x[0]), reverse=True)
     for _ in range(10):
         changed = False
         for name, (nargs, body) in sorted_cmds:
-            pat = re.escape(name) + r"(?![a-zA-Z])"
+            pat = r"\\" + re.escape(name) + r"(?![a-zA-Z])"
             if nargs == 0:
                 new_tex = re.sub(pat, lambda m, b=body: b, tex)
             else:
@@ -620,19 +746,35 @@ def _split_rows_with_hline(body: str) -> List[Tuple[str, bool]]:
     for part in parts:
         original = part.strip()
         # Check for \hline at the start (indicates group boundary)
-        has_hline = bool(re.match(r"^\s*\\hline\b", original))
+        has_hline = bool(
+            re.match(
+                r"^\s*\\(?:hline|hdashline|thickhline|Xhline(?:\{[^}]*\}|[\d.]*)|"
+                r"addlinespace(?:\[[^\]]*\])?|toprule|midrule|bottomrule(?:\[[^\]]*\])?|"
+                r"specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}|"
+                r"cmidrule(?:\([^)]*\))?\{[^}]*\}|"
+                r"cline(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}|"
+                r"cdashline(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}|"
+                r"cdashlinelr\{[^}]*\})",
+                original,
+            )
+        )
         # Remove rule commands within a row chunk (with optional arguments like [0.5pt])
         s = re.sub(r"^\s*\\hline\s*", "", original)  # Remove leading \hline first
+        s = re.sub(r"\\(hdashline|thickhline)\s*", "", s)
+        s = re.sub(r"\\Xhline(?:\{[^}]*\}|[\d.]+\w*)\s*", "", s)
+        s = re.sub(r"\\addlinespace(?:\[[^\]]*\])?\s*", "", s)
         s = re.sub(r"\\(toprule|bottomrule|midrule)(?:\[[^\]]*\])?\s*", "", s)
         # Remove \specialrule{width}{space_above}{space_below}
         s = re.sub(r"\\specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cmidrule(\([^)]*\))?\{[^}]*\}\s*", "", s)
+        s = re.sub(r"\\cline(\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", s)
+        s = re.sub(r"\\cdashline(\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", s)
+        s = re.sub(r"\\cdashlinelr\{[^}]*\}\s*", "", s)
         s = s.strip()
         if s:
             rows.append((s, has_hline))
         elif not original or has_hline:
-            # Preserve empty rows (needed for multirow placeholders)
-            # Also preserve hline-only rows as empty with hline flag
+            # Preserve rule-only rows as empty with boundary flag
             rows.append(("", has_hline))
         # else: rule-only row (other than hline), skip
     # Trim leading/trailing empty rows (but preserve their hline flags for next non-empty)
@@ -655,12 +797,18 @@ def _split_by_double_backslash(s: str) -> List[str]:
             depth += 1
             current.append(ch)
         elif ch == "}":
-            depth -= 1
+            # Be tolerant to malformed inputs with extra closing braces.
+            # Negative depth breaks row splitting for the rest of the table.
+            depth = max(0, depth - 1)
             current.append(ch)
         elif ch == "\\" and i + 1 < len(s) and s[i + 1] == "\\" and depth == 0:
             parts.append("".join(current))
             current = []
             i += 2
+            # Treat runs like '\\\\' (four slashes) as a single row separator
+            # to avoid producing artificial empty rows.
+            while i + 1 < len(s) and s[i] == "\\" and s[i + 1] == "\\":
+                i += 2
             continue
         else:
             current.append(ch)
@@ -703,6 +851,11 @@ def _parse_row(row_str: str) -> Optional[List[Cell]]:
         content = m.group(1) or m.group(2) or ""
         row_str = (row_str[:m.start()] + content + row_str[m.end():]).strip()
 
+    # Heuristic for docx-derived LaTeX: sometimes column separators are escaped
+    # as "\&" everywhere, which would otherwise collapse an entire row into one cell.
+    if re.search(r"(?<!\\)&", row_str) is None and row_str.count(r"\&") >= 2:
+        row_str = row_str.replace(r"\&", "&")
+
     parts = _split_by_ampersand(row_str)
     cells = []
     for part in parts:
@@ -735,7 +888,8 @@ def _split_by_ampersand(s: str) -> List[str]:
             depth += 1
             current.append(ch)
         elif ch == "}":
-            depth -= 1
+            # Be tolerant to malformed inputs with extra closing braces.
+            depth = max(0, depth - 1)
             current.append(ch)
         elif ch == "\\" and i + 1 < len(s) and s[i + 1] == "&":
             current.append("\\&")
@@ -799,10 +953,13 @@ def _parse_cell(text: str) -> Cell:
 
     # Extract colors FIRST (before multirow/multicolumn which use .match())
     for _ in range(3):  # handle multiple color commands
-        m = re.search(r"\\cellcolor(\[[^\]]*\])?\{([^}]*)\}", text)
+        m = re.search(rf"\\cellcolor(\[[^\]]*\])?\{{([^}}]+)\}}(?:\{{({_NESTED})\}})?", text)
         if m:
             bg_color = _normalize_color(m.group(2), m.group(1) or "")
-            text = (text[:m.start()] + text[m.end():]).strip()
+            # If content is in group(3), replace entire match with content
+            # Otherwise just remove the cellcolor command
+            replacement = m.group(3) if m.group(3) else ""
+            text = (text[:m.start()] + replacement + text[m.end():]).strip()
             continue
         m = re.search(r"\\rowcolor(\[[^\]]*\])?\{([^}]*)\}", text)
         if m:
@@ -831,11 +988,13 @@ def _parse_cell(text: str) -> Cell:
             text = m2.group(3).strip()
         # Re-extract cellcolor from inside multicolumn content
         for _ in range(3):
-            m2 = re.search(r"\\cellcolor(\[[^\]]*\])?\{([^}]*)\}", text)
+            m2 = re.search(rf"\\cellcolor(\[[^\]]*\])?\{{([^}}]+)\}}(?:\{{({_NESTED})\}})?", text)
             if m2:
                 if not bg_color:
                     bg_color = _normalize_color(m2.group(2), m2.group(1) or "")
-                text = (text[:m2.start()] + text[m2.end():]).strip()
+                # If content is in group(3), replace entire match with content
+                replacement = m2.group(3) if m2.group(3) else ""
+                text = (text[:m2.start()] + replacement + text[m2.end():]).strip()
                 continue
             break
 
@@ -853,7 +1012,7 @@ def _parse_cell(text: str) -> Cell:
 
     # Strip \makebox BEFORE color conversion so {\color{...} content} inside \makebox
     # doesn't split the text before \makebox can be removed (e.g. \compareyes expansion)
-    text = re.sub(r"\\makebox(?:\[[^\]]*\])*\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", r"\1", text)
+    text = re.sub(rf"\\makebox(?:\[[^\]]*\])*\{{({_NESTED})\}}", r"\1", text)
 
     # Convert mid-text \color{name}{content} → \textcolor{name}{content}
     # so the rich_segments logic below can detect it
@@ -896,6 +1055,24 @@ def _parse_cell(text: str) -> Cell:
         rotation = int(m.group(1))
         text = text[:m.start()] + m.group(2) + text[m.end():]
 
+    # Unwrap cell wrappers before rich-segment extraction; otherwise partial plain
+    # segments around \textcolor can leak wrapper tokens (e.g. "makecellHe...").
+    text = re.sub(
+        rf"\\makecell(?:\[[^\]]*\])?\{{({_NESTED})\}}",
+        lambda m: m.group(1).replace("\\\\", "\n"),
+        text,
+    )
+    text = re.sub(
+        rf"\\specialcell(?:\[[^\]]*\])?\{{({_NESTED})\}}",
+        lambda m: m.group(1).replace("\\\\", "\n"),
+        text,
+    )
+    text = re.sub(
+        r"\\shortstack(?:\[[^\]]*\])?\{([^}]*)\}",
+        lambda m: m.group(1).replace("\\\\", "\n"),
+        text,
+    )
+
     # Detect multiple \textcolor → rich text segments
     _tc_matches = list(re.finditer(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text))
     rich_segments = None
@@ -904,8 +1081,12 @@ def _parse_cell(text: str) -> Cell:
         pos = 0
         for _m in _tc_matches:
             if _m.start() > pos:
-                _pb, _pi, _pu, _, plain = _parse_formatting(text[pos:_m.start()].strip())
+                _raw_pre = text[pos:_m.start()]
+                _pb, _pi, _pu, _, plain = _parse_formatting(_raw_pre.strip())
                 plain = plain.lstrip()
+                # Preserve one trailing space before a colored segment.
+                if plain and _raw_pre and _raw_pre[-1].isspace() and not plain.endswith(" "):
+                    plain += " "
                 if plain:
                     segs.append((plain, None, _pb, _pi, _pu))
             color = _normalize_color(_m.group(1))
@@ -1049,14 +1230,6 @@ def _parse_cell(text: str) -> Cell:
                 style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
                 rowspan=rowspan, colspan=colspan,
             )
-        # Check for \mathcal BEFORE cleaning - it gets converted to Unicode but should be preserved
-        # e.g. $\mathcal{I} \rightarrow \mathcal{P}$ should be kept as raw LaTeX
-        if re.search(r'\\mathcal\{', _inner):
-            return Cell(
-                value=text,
-                style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
-                rowspan=rowspan, colspan=colspan,
-            )
         _cleaned = _clean_latex(_inner)
         # If cleaned result still has LaTeX commands, keep as raw LaTeX
         # (e.g. ${f_{\mathcal{D}}^{l-1}}'=...$)
@@ -1097,16 +1270,6 @@ def _parse_cell(text: str) -> Cell:
             text = text[:m.start()] + m.group(1) + text[m.end():]
             continue
         break
-
-    # If text contains \mathcal, preserve as raw LaTeX (Unicode conversion would break rendering)
-    if re.search(r'\\mathcal\{', text):
-        # Strip \arrayrulecolor{...} which may be prepended from \midrule lines
-        clean_text = re.sub(r'\\arrayrulecolor(?:\{[^}]*\}|[a-zA-Z]+)\s*', '', text).strip()
-        return Cell(
-            value=clean_text,
-            style=CellStyle(raw_latex=True, bg_color=bg_color, alignment=alignment),
-            rowspan=rowspan, colspan=colspan,
-        )
 
     # Parse formatting and extract value
     bold, italic, underline, diagbox_parts, value = _parse_formatting(text)
@@ -1248,6 +1411,7 @@ def _clean_latex(text: str) -> str:
     text = text.replace("\\textasciicircum{}", "^")
     text = text.replace("\\textasciicircle{}", "^")
     text = text.replace("\\textasciitilde{}", "~")
+    text = text.replace("\\textasciitilde", "~")
     text = text.replace("\\textbackslash{}", "\\")
     # \begin{tabular}[c]{@{}c@{}}content\end{tabular} → content (nested tabular as makecell)
     text = re.sub(
@@ -1256,17 +1420,20 @@ def _clean_latex(text: str) -> str:
         text, flags=re.DOTALL,
     )
     # \makebox[width][pos]{content} → content
-    text = re.sub(r"\\makebox(?:\[[^\]]*\])*\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}", r"\1", text)
+    text = re.sub(rf"\\makebox(?:\[[^\]]*\])*\{{({_NESTED})\}}", r"\1", text)
     # \makecell{Things-\\EEG} → Things-\nEEG (preserve line breaks as newline)
     text = re.sub(rf"\\makecell(?:\[[^\]]*\])?\{{({_NESTED})\}}", lambda m: m.group(1).replace("\\\\", "\n"), text)
     # \specialcell[t]{content} → content (like makecell)
     text = re.sub(rf"\\specialcell(?:\[[^\]]*\])?\{{({_NESTED})\}}", lambda m: m.group(1).replace("\\\\", "\n"), text)
     # \shortstack{content} → content (like makecell)
     text = re.sub(r"\\shortstack(?:\[[^\]]*\])?\{([^}]*)\}", lambda m: m.group(1).replace("\\\\", "\n"), text)
-    # Join hyphenated line breaks: "Conven- \ntional" → "Conventional"
-    text = re.sub(r"- *\n *", "", text)
+    # Join hyphenated lowercase word wraps only: "Conven- \ntional" → "Conventional".
+    # Keep explicit line-break labels like "Things-\nEEG" from \makecell.
+    text = re.sub(r"(?<=[a-z])-\s*\n\s*(?=[a-z])", "", text)
     # \var{$\pm$.005} → $\pm$.005 (strip wrapper, keep content)
     text = re.sub(r"\\var\{([^}]*)\}", r"\1", text)
+    # Normalize escaped superscript markers from noisy sources: \^* -> ^*
+    text = text.replace(r"\^", "^")
     # \textcolor{color}{content} → content (strip color, keep content)
     for _ in range(5):
         m = re.search(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text)
@@ -1395,8 +1562,12 @@ def _clean_latex(text: str) -> str:
     text = text.replace("~", " ")
     # Remove citations: \citep{...}, \cite{...}, \citet{...}, \citeyearpar{...}, etc.
     text = re.sub(r"~?\\cite[a-z]*\{[^}]*\}", "", text)
+    # Remove refs: \ref{...}, \eqref{...}
+    text = re.sub(r"\\eq?ref\{[^}]*\}", "", text)
     # Remove \- (LaTeX soft hyphen / discretionary hyphen)
     text = text.replace("\\-", "")
+    # Remove \/ italic correction markers (often appear as -\\/- in OCR/docx exports)
+    text = text.replace("\\/", "")
     # Remove \\ inside cells (line break in makecell) — must come before '\ ' conversion
     text = text.replace("\\\\", " ")
     # Remove \, and other spacing; convert '\ ' (forced space) to space
@@ -1449,8 +1620,24 @@ def _clean_latex(text: str) -> str:
     text = re.sub(r"\\iffalse\b.*?\\fi\b\s*", "", text, flags=re.DOTALL)
     # Remove rule width spec: [0.5pt], [1pt], etc. at the start
     text = re.sub(r"^\s*\[[\d.]+\w*\]\s*", "", text)
+    # Remove bare rule-token residues from malformed row breaks
+    text = re.sub(
+        r"^\s*(?:hline|hdashline|thickhline|toprule|midrule|bottomrule(?:\[[^\]]*\])?)\b\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"^\s*(?:c(?:mid|dash)?line(?:lr)?)\s*(?:\d+\s*-\s*\d+)?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
     # Remove \color{name} and \color[HTML]{code} (standalone color commands)
     text = re.sub(r"\\color(?:\[[^\]]*\])?\{[^}]*\}\s*", "", text)
+    # Remove residual cellcolor tokens from broken brace-stripped inputs
+    text = re.sub(r"\\?cellcolor(?:\[[^\]]*\])?\s*\{[^}]*\}\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\\?cellcolor(?:\[[^\]]*\])?\s*", "", text, flags=re.IGNORECASE)
     # Remove \colorXxx (no-brace form, e.g. \colorblue, \colorred)
     text = re.sub(r"\\color[a-zA-Z]+\s*", "", text)
     # Remove \arrayrulecolor{...} or \arrayrulecolorXxx (no-brace form)

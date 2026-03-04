@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Union
 
 from openpyxl import Workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -56,7 +57,15 @@ def _write_sheet(ws, table: TableData) -> None:
             else:
                 val = cell.value if cell.value != "" else None
 
-            ws.cell(row=excel_row, column=excel_col, value=val)
+            target = ws.cell(row=excel_row, column=excel_col)
+            # Defensive guard for malformed overlap cases: writing to a
+            # non-master merged cell raises read-only errors in openpyxl.
+            if isinstance(target, MergedCell):
+                if val in ("", None):
+                    continue
+                # Keep pipeline running even if source merge semantics are broken.
+                continue
+            target.value = val
 
             # Font styling (skip for rich text cells)
             if not cell.rich_segments:
@@ -111,9 +120,9 @@ def _write_sheet(ws, table: TableData) -> None:
                             merged.add((mr, mc))
 
     # Auto-adjust column widths based on content
-    for col_idx in range(1, table.num_cols + 1):
+    for col_idx in range(1, (ws.max_column or table.num_cols) + 1):
         max_len = 0
-        for row_idx in range(1, len(table.cells) + 1):
+        for row_idx in range(1, (ws.max_row or len(table.cells)) + 1):
             val = ws.cell(row=row_idx, column=col_idx).value
             if val is not None:
                 cell_len = max(len(str(line)) for line in str(val).split("\n"))

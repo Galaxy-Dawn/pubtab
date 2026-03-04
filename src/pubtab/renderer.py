@@ -131,6 +131,9 @@ def _cell_to_latex(cell: Cell) -> str:
         text = format_number(val, cell.style.fmt, cell.style.strip_leading_zero)
     else:
         s = str(val)
+        # Some sources contain escaped caret (\^) as a superscript marker.
+        # Normalize to plain ^ so downstream math conversion generates valid LaTeX.
+        s = s.replace(r"\^", "^")
         if re.match(r'^\$[^$]+\$$', s):
             text = s  # entire value is a math expression, pass through as-is
         elif _MATH_PARENS_HYPHEN_RE.match(s):
@@ -188,7 +191,16 @@ def _cell_to_latex(cell: Cell) -> str:
             _m = _NUMERIC_SIGNED_SUBSCRIPT_RE.match(s)
             text = f"{_m.group(1)}$_{{{_m.group(2)}}}$"
         elif _UNICODE_MATH_RE.search(s) and ('_' in s or '^' in s):
-            text = _cleaned_to_math(s)
+            # Keep alphabetic base in text mode (so style wrappers still apply),
+            # while converting Unicode math symbols in sub/superscript.
+            _m = re.match(r'^([A-Za-z][A-Za-z0-9-]*)([_^])(.+)$', s)
+            if _m:
+                _base = latex_escape(_m.group(1))
+                _op = _m.group(2)
+                _rhs = _UNICODE_MATH_RE.sub(lambda m: _UNICODE_TO_LATEX[m.group()], _m.group(3))
+                text = f"{_base}${_op}{{{_rhs}}}$"
+            else:
+                text = _cleaned_to_math(s)
         else:
             text = latex_escape(s)
 
@@ -255,7 +267,7 @@ def _cell_to_latex(cell: Cell) -> str:
     # cellcolor for single-column cells (multicolumn case handled above)
     if cell.style.bg_color and cell.colspan <= 1:
         rgb = hex_to_latex_color(cell.style.bg_color)
-        text = f"\\cellcolor[RGB]{{{rgb}}}{text}"
+        text = f"\\cellcolor[RGB]{{{rgb}}}{{{text}}}"
 
     return text
 
@@ -272,6 +284,52 @@ def _build_col_spec(table: TableData, theme_config: ThemeConfig) -> str:
             a = "c"
         specs.append(a)
     return "".join(specs)
+
+
+def _required_packages_for_table(
+    table: TableData,
+    theme_config: ThemeConfig,
+    resizebox: Optional[str],
+) -> list[str]:
+    """Return an ordered, de-duplicated package list for the current table."""
+    packages = list(theme_config.packages)
+
+    # rotatebox/resizebox rely on graphicx; add explicit hint if needed.
+    needs_graphicx = bool(resizebox) or any(
+        cell.style.rotation for row in table.cells for cell in row
+    )
+    if needs_graphicx:
+        packages.append("graphicx")
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for pkg in packages:
+        if pkg and pkg not in seen:
+            seen.add(pkg)
+            ordered.append(pkg)
+    return ordered
+
+
+def _build_package_hint_block(
+    table: TableData,
+    theme_config: ThemeConfig,
+    resizebox: Optional[str],
+) -> str:
+    """Build a commented package hint block inserted at top of output tex."""
+    packages = _required_packages_for_table(table, theme_config, resizebox)
+    if not packages:
+        return ""
+
+    lines = [
+        "% Theme package hints for this table (add in your preamble):",
+    ]
+    for pkg in packages:
+        if pkg == "xcolor":
+            lines.append("% \\usepackage[table]{xcolor}")
+        else:
+            lines.append(f"% \\usepackage{{{pkg}}}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _auto_cmidrule(table_cells: list[list[Cell]], row_idx: int, num_cols: int) -> Optional[str]:
@@ -328,6 +386,29 @@ def _row_uniform_bg(cells: list) -> Optional[str]:
         elif color != cell.style.bg_color:
             return None
     return color
+
+
+def _cell_has_payload(cell: Cell) -> bool:
+    """Return True when a cell carries visible content (not just placeholders)."""
+    return bool(cell.value not in ("", None) or cell.rich_segments or cell.style.diagbox)
+
+
+def _col_in_active_rowspan(table_cells: list[list[Cell]], row_idx: int, col_idx: int) -> bool:
+    """Return True if row_idx/col_idx is covered by a rowspan started in an earlier row."""
+    for r in range(row_idx):
+        if col_idx >= len(table_cells[r]):
+            continue
+        cell = table_cells[r][col_idx]
+        if cell.rowspan > 1 and (r + cell.rowspan) > row_idx:
+            return True
+    return False
+
+
+def _section_sep_rule(body_cells: list[list[Cell]], row_idx: int, num_cols: int) -> str:
+    """Choose separator for section rows, avoiding strikes over active first-column multirow."""
+    if num_cols > 1 and _col_in_active_rowspan(body_cells, row_idx, 0):
+        return f"\\cmidrule(lr){{2-{num_cols}}}"
+    return "\\midrule"
 
 
 def render(
@@ -474,24 +555,51 @@ def render(
         # Auto-detect section row: first cell spans most columns, rest empty
         is_section = False
         if i < len(body_cells) and body_cells[i]:
-            c0 = body_cells[i][0]
+            row_cells = body_cells[i]
+            c0 = row_cells[0]
             if c0.colspan >= table.num_cols:
                 is_section = True
             elif c0.colspan >= table.num_cols - 1 and all(
-                not c.value and c.value != 0 for c in body_cells[i][1:]
+                not _cell_has_payload(c) for c in row_cells[1:]
             ):
                 is_section = True
+            else:
+                # Handle grouped-title rows where the significant multicolumn
+                # cell is not in column 1 (e.g. empty first col + model name).
+                payload_idx = [idx for idx, c in enumerate(row_cells) if _cell_has_payload(c)]
+                if len(payload_idx) == 1:
+                    idx = payload_idx[0]
+                    sec = row_cells[idx]
+                    if sec.colspan > 1 and (idx + sec.colspan) >= (table.num_cols - 1):
+                        is_section = True
+                elif len(payload_idx) == 2:
+                    # Pattern: leading multirow group label + wide section title
+                    # (e.g. "Popular" + "\multicolumn{13}{c}{GPT-3.5-Turbo}").
+                    a, b = payload_idx
+                    for label_idx, sec_idx in ((a, b), (b, a)):
+                        label = row_cells[label_idx]
+                        sec = row_cells[sec_idx]
+                        if (
+                            label.rowspan > 1
+                            and sec.colspan > 1
+                            and (sec_idx + sec.colspan) >= (table.num_cols - 1)
+                        ):
+                            is_section = True
+                            break
+        section_rule = _section_sep_rule(body_cells, i, table.num_cols) if is_section else "\\midrule"
         if is_section and i > 0:
             # Only add auto-before if previous item is not already a midrule
-            if not body_rows_with_seps or body_rows_with_seps[-1] != "\\midrule":
-                body_rows_with_seps.append("\\midrule")
+            if not body_rows_with_seps or body_rows_with_seps[-1] != section_rule:
+                body_rows_with_seps.append(section_rule)
         body_rows_with_seps.append(row)
         abs_idx = table.header_rows + i
         has_group_sep = abs_idx in gs
         if is_section and not has_group_sep:
-            body_rows_with_seps.append("\\midrule")
+            body_rows_with_seps.append(section_rule)
         if has_group_sep:
             sep = gs[abs_idx]
+            if is_section and sep == "\\midrule":
+                sep = section_rule
             if isinstance(sep, list):
                 body_rows_with_seps.extend(sep)
             else:
@@ -529,6 +637,9 @@ def render(
     result = tmpl.render(**ctx)
     if upright_scripts:
         result = re.sub(r'([_^])\{([^}\\]+)\}', r'\1{\\mathrm{\2}}', result)
+    package_hint = _build_package_hint_block(table, config, resizebox)
+    if package_hint:
+        result = package_hint + result
     return result
 
 

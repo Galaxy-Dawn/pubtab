@@ -23,6 +23,21 @@
 - **样式保真** — 颜色、粗体、斜体、合并单元格、旋转、对角线表头完整保留
 - **零配置预览** — 首次使用自动安装 TinyTeX，一条命令生成 PNG 预览
 - **学术优化** — 前导零剥离、`\diagbox` 对角线表头、section 行自动检测、`\cmidrule` 自动生成
+- **默认全 Sheet 导出** — 未指定 `--sheet` 时，`xlsx2tex` 会导出所有 sheet（`*_sheetNN.tex`）
+- **更干净的列宽** — 仅裁剪右侧连续空列，保留中间空列
+- **Overleaf 友好提示** — 生成的 `.tex` 顶部会自动附带注释版 `\usepackage{...}` 建议
+
+## 最近修复
+
+- 修复 LaTeX 解析中 `\\&` 的歧义处理：
+  - `C\\&L` 这类单元格内异常写法仍解析为 `C&L`
+  - `...\\&...` 这种合法行边界不再被错误折叠
+- 修复嵌套 tabular/makecell 富文本场景的包装残留（不再出现 `makecellHe...`）
+- 改进首列存在活动 `\multirow` 时的分隔线策略：
+  - 自动使用局部线（`\cmidrule`），避免横线穿过分组标签
+- 在导出的 `.tex` 文件顶部新增注释版 package 提示：
+  - 包含主题相关宏包建议（如 `booktabs`、`multirow`、`xcolor`）
+  - 使用 `resizebox`/旋转等能力时自动补充 `graphicx` 提示
 
 ## 快速开始
 
@@ -61,10 +76,25 @@ pubtab.preview("table.tex", dpi=300)
 # LaTeX → Excel
 pubtab.tex_to_excel("table.tex", "output.xlsx")
 
-# 多表格支持
-tables = pubtab.read_tex_multi("paper.tex")  # 解析多个表格
-pubtab.write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
+# 多表格支持（底层 API）
+from pathlib import Path
+from pubtab.tex_reader import read_tex_multi
+from pubtab.writer import write_excel_multi
+
+tables = read_tex_multi(Path("paper.tex").read_text())  # 解析多个表格
+write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
 ```
+
+## 默认全 Sheet 输出规则
+
+- 未指定 `--sheet` 时，`xlsx2tex` 会导出全部 sheet。
+- 多 sheet 工作簿使用 `-o output.tex` 时，输出文件为：
+  - `output_sheet01.tex`、`output_sheet02.tex`、...
+- 指定 `--sheet` 时，仅导出目标 sheet。
+- 使用 `--preview` 时，PNG 文件命名遵循同样的 `*_sheetNN.png` 规则。
+- 每个导出的 `.tex` 都会在文件顶部附带注释版导言区提示：
+  - `% Theme package hints for this table (add in your preamble):`
+  - `% \usepackage{...}`
 
 ## 效果展示
 
@@ -96,9 +126,10 @@ pubtab.write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
 - 从合并表头自动生成 `\cmidrule`
 - Section 行检测（首列跨全宽 → 自动添加 `\midrule`）
 - 通过 `group_separators` 参数设置行组分隔
+- 右侧空列裁剪（仅尾部裁剪；中间空列保留）
 - 可配置间距（`tabcolsep`、`arraystretch`、线宽）
 - `resizebox` 和 `font_size` 覆盖
-- `table*` 双栏跨页（`span_columns=True`）
+- `table*` 双栏跨栏（`span_columns=True`）
 
 ### LaTeX → Excel 转换
 
@@ -117,6 +148,9 @@ pubtab.write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
   - 80+ LaTeX 符号 → Unicode（±、×、→、✓、α-ω 等）
   - 上下标的正确格式化
 - **嵌套结构**：嵌套 tabular → `\makecell` 转换
+- **行/列切分鲁棒性增强**：
+  - 正确处理 `...\\&...` 行边界
+  - 避免富文本提取中的文本粘连残留
 
 ### PNG/PDF 预览
 
@@ -124,7 +158,7 @@ pubtab.write_excel_multi(tables, "output.xlsx")  # 写入不同工作表
 
 ```bash
 pubtab preview table.tex --dpi 300           # PNG 输出（默认）
-pubtab preview table.tex -o output.pdf       # PDF 输出
+pubtab preview table.tex --format pdf -o output.pdf  # PDF 输出
 ```
 
 **TinyTeX 自动安装：** 若系统未找到 `pdflatex`，pubtab 会自动下载安装 TinyTeX（约 90 MB）到 `~/.pubtab/TinyTeX/`，并安装所需 LaTeX 包（booktabs、multirow、xcolor 等）。仅需一次。
@@ -143,7 +177,7 @@ pip install pubtab[preview]  # 安装 pdf2image
 |------|------|
 | `pubtab xlsx2tex` | Excel 转 LaTeX |
 | `pubtab tex2xlsx` | LaTeX 转 Excel |
-| `pubtab preview` | 从 .tex 生成 PNG |
+| `pubtab preview` | 从 .tex 生成 PNG/PDF |
 | `pubtab themes` | 列出可用主题 |
 
 <details>
@@ -164,7 +198,7 @@ Options:
   --font-size TEXT           字号（如 footnotesize）
   --resizebox TEXT           缩放宽度（如 0.8\textwidth）
   --col-spec TEXT            列格式（如 lccc）
-  --span-columns            使用 table* 双栏跨页
+  --span-columns            使用 table* 双栏跨栏
   --upright-scripts         保持上下标直立（不倾斜）
   --preview                 生成 PNG 预览
   --dpi INTEGER             预览 DPI [默认: 300]

@@ -99,11 +99,31 @@ def xlsx2tex_cmd(
         kwargs["upright_scripts"] = True
 
     pt.xlsx2tex(input_file, output, **kwargs)
-    click.echo(f"Written: {output}")
+    sheet_count = 1
+    if sheet is None:
+        try:
+            from .reader import list_excel_sheets
+
+            sheet_count = len(list_excel_sheets(input_file))
+        except Exception:
+            sheet_count = 1
+
+    output_path = Path(output)
+    first_tex = output_path
+    if sheet_count > 1:
+        first_tex = output_path.with_name(f"{output_path.stem}_sheet01.tex")
+
+    if sheet_count <= 1:
+        click.echo(f"Written: {first_tex}")
+    else:
+        click.echo(f"Written: {first_tex} (+{sheet_count - 1} additional sheet tex files)")
 
     if do_preview:
-        png_path = Path(output).with_suffix(".png")
-        click.echo(f"Preview: {png_path}")
+        png_path = first_tex.with_suffix(".png")
+        if sheet_count <= 1:
+            click.echo(f"Preview: {png_path}")
+        else:
+            click.echo(f"Preview: {png_path} (+{sheet_count - 1} additional sheet previews)")
 
 
 @main.command("themes")

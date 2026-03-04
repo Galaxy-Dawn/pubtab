@@ -7,7 +7,8 @@ import pytest
 
 from pubtab import convert, read_excel, tex_to_excel
 from pubtab.models import SpacingConfig, TableData
-from pubtab._preview import _build_standalone, _find_pdflatex, compile_pdf
+from pubtab._preview import _build_standalone, _find_pdflatex, _strip_table_float, compile_pdf
+from pubtab.config import load_config
 from pubtab.renderer import render
 from pubtab.tex_reader import read_tex
 
@@ -90,6 +91,129 @@ def test_xlsx_to_tex_roundtrip(name, tmp_path):
     table_gen = read_tex(tex_path.read_text())
     assert table_gen.num_rows == table_orig.num_rows
     assert table_gen.num_cols == table_orig.num_cols
+
+
+def test_xlsx2tex_default_exports_all_sheets(tmp_path):
+    """xlsx2tex without sheet should export every sheet to separate tex files."""
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "Main Sheet"
+    ws1["A1"] = "MAINCELL"
+    ws2 = wb.create_sheet("Aux-2")
+    ws2["A1"] = "AUXCELL"
+
+    xlsx_path = tmp_path / "multi.xlsx"
+    wb.save(xlsx_path)
+
+    out_tex = tmp_path / "multi.tex"
+    convert(str(xlsx_path), str(out_tex))
+
+    generated = sorted(tmp_path.glob("multi*.tex"))
+    assert len(generated) == 2
+    first_tex = tmp_path / "multi_sheet01.tex"
+    second_tex = tmp_path / "multi_sheet02.tex"
+    assert first_tex in generated
+    assert second_tex in generated
+    assert "MAINCELL" in first_tex.read_text()
+    assert "AUXCELL" in second_tex.read_text()
+
+
+def test_xlsx2tex_sheet_option_exports_single_sheet(tmp_path):
+    """xlsx2tex with sheet option should export only the specified sheet."""
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "Main Sheet"
+    ws1["A1"] = "MAINCELL"
+    ws2 = wb.create_sheet("Aux-2")
+    ws2["A1"] = "AUXCELL"
+
+    xlsx_path = tmp_path / "single.xlsx"
+    wb.save(xlsx_path)
+
+    out_tex = tmp_path / "single.tex"
+    convert(str(xlsx_path), str(out_tex), sheet="Aux-2")
+
+    generated = sorted(tmp_path.glob("single*.tex"))
+    assert len(generated) == 1
+    assert generated[0] == out_tex
+    text = out_tex.read_text()
+    assert "AUXCELL" in text
+    assert "MAINCELL" not in text
+
+
+def test_xlsx2tex_includes_commented_package_hints(tmp_path):
+    """Generated tex should include commented package hints for Overleaf users."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "Header"
+    ws["A2"] = "Value"
+    xlsx_path = tmp_path / "pkg_hint.xlsx"
+    wb.save(xlsx_path)
+
+    out_tex = tmp_path / "pkg_hint.tex"
+    convert(str(xlsx_path), str(out_tex))
+    text = out_tex.read_text()
+
+    assert text.startswith("% Theme package hints for this table")
+    assert r"% \usepackage{booktabs}" in text
+    assert r"% \usepackage{multirow}" in text
+    assert r"% \usepackage[table]{xcolor}" in text
+
+
+def test_xlsx2tex_package_hints_include_graphicx_when_resizebox_enabled(tmp_path):
+    """resizebox output should hint graphicx package in comments."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "H"
+    ws["A2"] = "V"
+    xlsx_path = tmp_path / "pkg_hint_graphicx.xlsx"
+    wb.save(xlsx_path)
+
+    out_tex = tmp_path / "pkg_hint_graphicx.tex"
+    convert(str(xlsx_path), str(out_tex), resizebox=r"0.8\textwidth")
+    text = out_tex.read_text()
+
+    assert r"% \usepackage{graphicx}" in text
+
+
+def test_read_excel_trims_only_trailing_empty_columns(tmp_path):
+    """read_excel should trim right empty columns but keep middle empty columns."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "H1"
+    ws["B1"] = ""
+    ws["C1"] = "H3"
+    ws["A2"] = "v1"
+    ws["C2"] = "v3"
+    # Force trailing empty columns to exist in worksheet bounds.
+    ws["D1"] = ""
+    ws["E1"] = ""
+
+    xlsx_path = tmp_path / "trim_cols.xlsx"
+    wb.save(xlsx_path)
+
+    table = read_excel(str(xlsx_path))
+    assert table.num_cols == 3
+    assert table.cells[0][1].value == ""
+
+
+def test_read_excel_trims_trailing_columns_even_with_wide_merged_title(tmp_path):
+    """Trailing empty cols should still be trimmed when covered by a merged title."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "Title"
+    ws.merge_cells("A1:E1")
+    ws["A2"] = "Method"
+    ws["B2"] = "Score"
+    ws["A3"] = "M1"
+    ws["B3"] = "0.95"
+
+    xlsx_path = tmp_path / "trim_with_merge.xlsx"
+    wb.save(xlsx_path)
+
+    table = read_excel(str(xlsx_path))
+    assert table.num_cols == 2
+    assert table.cells[0][0].colspan == 2
 
 
 # --- tex_reader unit tests ---
@@ -196,6 +320,271 @@ def test_tex_reader_pm_spacing():
     assert "0.626±0.018" in str(table.cells[0][0].value)
 
 
+def test_tex_reader_makecell_hyphen_linebreak_preserved():
+    """Parser keeps explicit makecell line breaks with trailing hyphen."""
+    tex = r"""
+\begin{tabular}{c}
+\toprule
+\makecell{Things-\\EEG} \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.cells[0][0].value == "Things-\nEEG"
+
+
+def test_tex_reader_malformed_double_backslash_percent_does_not_split_row():
+    """`\\%` artifacts should be interpreted as literal percent in-cell."""
+    tex = r"""
+\begin{tabular}{cccc}
+\toprule
+Model & Chat & Delta & Score \\
+\midrule
+M1 & 68.2 & 27.0\\% & 83.2 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 2
+    assert table.cells[1][2].value == "27.0%"
+
+
+def test_tex_reader_malformed_double_backslash_hash_keeps_header():
+    """`\\#` artifacts should remain header text, not create extra rows."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+Depth & \\#P (M) & Score \\
+\midrule
+18 & 11.23 & 86.41 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 2
+    assert table.cells[0][1].value == "#P (M)"
+
+
+def test_tex_reader_rowbreak_followed_by_hash_is_not_collapsed():
+    """`...\\\\#...` row boundaries must stay as row separators."""
+    tex = r"""
+\begin{tabular}{cc}
+\toprule
+A & B \\
+\midrule
+v1 & v2\\#Tag & 1 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    assert table.cells[1][0].value == "v1"
+    assert table.cells[2][0].value == "#Tag"
+
+
+def test_tex_reader_malformed_double_backslash_ampersand_keeps_single_row():
+    """`\\&` artifacts should stay inside one cell as literal ampersand."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+Method & Input & Score \\
+\midrule
+OpenOcc & C\\&L & 70.59 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 2
+    assert table.cells[1][1].value == "C&L"
+    assert table.cells[1][2].value == "70.59"
+
+
+def test_tex_reader_all_delimiters_escaped_as_ampersand_are_recovered():
+    """Rows using only `\\&` as separators should still split into multiple cells."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+A \& B \& C \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 1
+    assert table.num_cols == 3
+    assert table.cells[0][0].value == "A"
+    assert table.cells[0][1].value == "B"
+    assert table.cells[0][2].value == "C"
+
+
+def test_tex_reader_rowbreak_followed_by_ampersand_is_not_collapsed():
+    """`...\\\\&...` row boundaries must not be normalized into a literal ampersand."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+M & NQ & ARC-C \\
+\midrule
+\multirow{2}{*}{Ours(Yi-6B)} & 23.28 & 76.54\\&(\textcolor{green}{+0.73})&(\textcolor{green}{+3.33}) \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    assert table.cells[1][2].value == "76.54"
+    assert table.cells[2][1].value == "(+0.73)"
+    assert table.cells[2][2].value == "(+3.33)"
+
+
+def test_tex_reader_triple_backslash_rule_commands_not_leaked():
+    """Triple-backslash rule commands should not leak as plain text."""
+    tex = r"""
+\begin{tabular}{ll}
+\toprule
+A & B \\\hline
+C & D \\\cline{1-2}
+E & F \\\bottomrule[0.8pt]
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    values = [str(cell.value) for row in table.cells for cell in row if str(cell.value).strip()]
+    joined = " | ".join(values).lower()
+    assert "hline" not in joined
+    assert "cline" not in joined
+    assert "bottomrule" not in joined
+
+
+def test_tex_reader_nested_makebox_cleans_to_content():
+    """Nested makebox/color wrappers should reduce to plain payload text."""
+    tex = r"""
+\begin{tabular}{c}
+\toprule
+\makebox[1.25em][c]{{\color{ForestGreen}\textsf{\textbf{P}}}} \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.cells[0][0].value == "P"
+
+
+def test_tex_reader_decorative_separator_block_is_removed():
+    """Decorative '-\\/-\\/-...' blocks should not pollute data cells."""
+    tex = r"""
+\begin{tabular}{ll}
+\toprule
+Lang & Value \\
+\midrule
+English
+-\/-\/-\/-\/-\/-\/-\/-
+\multirow{2}{*}{English} & 1 \\
+ & 2 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    assert table.cells[1][0].value == "English"
+    all_values = [str(cell.value) for row in table.cells for cell in row]
+    assert not any("-/-" in v or "---" in v for v in all_values)
+
+
+def test_tex_reader_mixed_case_dvips_color_is_preserved():
+    """Mixed-case dvips names like `Dandelion` should map to real RGB."""
+    tex = r"""
+\begin{tabular}{c}
+\toprule
+\makebox[1.25em][c]{{\color{Dandelion}\textbf{P}}}\quad/\quad\makebox[1.25em][c]{{\color{ForestGreen}\ding{52}}} \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    cell = table.cells[0][0]
+    assert cell.rich_segments is not None
+    assert cell.rich_segments[0][0] == "P"
+    assert cell.rich_segments[0][1] == "#FDBC42"
+
+
+def test_tex_reader_inline_decorative_separator_is_removed():
+    """Inline `Lang -\\/-\\/...` separator lines should be dropped."""
+    tex = r"""
+\begin{tabular}{ll}
+\toprule
+Lang & Value \\
+\midrule
+Korean -\/-\/-\/-\/-\/-\/-\/-
+\multirow{2}{*}{Korean} & 1 \\
+ & 2 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    assert table.cells[1][0].value == "Korean"
+    all_values = [str(cell.value) for row in table.cells for cell in row]
+    assert not any("-/-" in v or "---" in v for v in all_values)
+
+
+def test_tex_reader_rich_segments_do_not_leak_makecell_prefix():
+    """Rich text extraction should not keep wrapper residue like `makecellHe...`."""
+    tex = r"""
+\begin{tabular}{ll}
+\toprule
+Q & A \\
+\midrule
+Qwen2 response & \begin{tabular}[c]{@{}l@{}}He Ain't Heavy was written by \textcolor{red}{Mike D'Abo}. \\ $\cdots$\end{tabular} \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    cell = table.cells[1][1]
+    assert "makecell" not in str(cell.value).lower()
+    assert cell.rich_segments is not None
+    assert "makecell" not in cell.rich_segments[0][0].lower()
+    assert cell.rich_segments[0][0].endswith(" ")
+
+
+def test_tex_reader_infers_first_column_rowspan_from_blank_continuation_rows():
+    """Infer first-column visual merges when groups use blank continuation rows."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+Iter & Balls & Score \\
+\midrule
+1 & 5 & 0.1 \\
+ & 15 & 0.2 \\
+ & 30 & 0.3 \\
+\hline
+2 & 5 & 0.4 \\
+ & 15 & 0.5 \\
+ & 30 & 0.6 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.cells[1][0].rowspan == 3
+    assert table.cells[4][0].rowspan == 3
+    assert table.cells[2][0].value == ""
+    assert table.cells[3][0].value == ""
+    assert table.cells[5][0].value == ""
+    assert table.cells[6][0].value == ""
+
+
+def test_tex_reader_preserves_middle_spacer_column():
+    """Middle intentionally empty columns should not be globally trimmed."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+Left &  & Right \\
+\midrule
+L1 &  & R1 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_cols == 3
+    assert table.cells[0][1].value == ""
+    assert table.cells[1][1].value == ""
+
+
 # --- renderer tests ---
 
 def test_render_three_line():
@@ -230,6 +619,47 @@ def test_render_special_chars():
     assert "A \\& B" in tex
 
 
+def test_render_section_row_midrules_when_section_not_in_first_column():
+    """Section rows with empty first col should still get auto midrules."""
+    from pubtab.models import Cell
+    header = [Cell("Dataset"), Cell("Method"), Cell("Score")]
+    section = [Cell(""), Cell("GPT-3.5", colspan=2), Cell("")]
+    row = [Cell("Popular"), Cell("Direct"), Cell("3.67")]
+    table = TableData(cells=[header, section, row], num_rows=3, num_cols=3, header_rows=1)
+    tex = render(table)
+    # One default header midrule + at least one auto section separator
+    assert tex.count("\\midrule") >= 2
+
+
+def test_render_section_row_uses_partial_rule_when_first_col_is_active_multirow():
+    """Auto section separators should not strike through an active first-column multirow."""
+    from pubtab.models import Cell
+    header = [Cell("Dataset"), Cell("Method"), Cell("Score")]
+    row1 = [Cell("Popular", rowspan=4), Cell("GPT-3.5", colspan=2), Cell("")]
+    row2 = [Cell(""), Cell("Direct"), Cell("3.67")]
+    row3 = [Cell(""), Cell("Llama3.1", colspan=2), Cell("")]
+    row4 = [Cell(""), Cell("Direct"), Cell("3.60")]
+    table = TableData(
+        cells=[header, row1, row2, row3, row4],
+        num_rows=5,
+        num_cols=3,
+        header_rows=1,
+    )
+    tex = render(table)
+    assert "\\cmidrule(lr){2-3}" in tex
+
+
+def test_render_unicode_subscript_keeps_text_base():
+    """Unicode subscript symbols should render as text base + math script."""
+    from pubtab.models import Cell
+    row = [Cell("DRF_θ"), Cell("F_θ")]
+    table = TableData(cells=[row], num_rows=1, num_cols=2, header_rows=0)
+    tex = render(table)
+    assert "DRF$_{\\theta}$" in tex
+    assert "F$_{\\theta}$" in tex
+    assert "$DRF_{\\theta}$" not in tex
+
+
 # --- preview tests ---
 
 def test_build_standalone_structure():
@@ -251,6 +681,32 @@ def test_build_standalone_keeps_existing_resizebox():
     content = "\\resizebox{0.9\\textwidth}{!}{\\begin{tabular}{cc}a & b\\end{tabular}}"
     tex = _build_standalone(f"\\begin{{table}}[t]{content}\\end{{table}}")
     assert tex.count("\\resizebox") == 1
+
+
+def test_strip_table_float_without_position():
+    """Strip table float wrapper even when \\begin{table} has no [position]."""
+    tex = r"\begin{table}\centering\caption{Cap}\begin{tabular}{c}x\end{tabular}\end{table}"
+    out = _strip_table_float(tex)
+    assert "\\begin{table" not in out
+    assert "\\end{table" not in out
+    assert "\\captionof{table}{Cap}" in out
+
+
+def test_load_config_empty_yaml(tmp_path):
+    """Empty YAML config should load as empty kwargs."""
+    cfg = tmp_path / "empty.yaml"
+    cfg.write_text("")
+    kwargs, formatter = load_config(cfg)
+    assert kwargs == {}
+    assert formatter is None
+
+
+def test_load_config_non_mapping_raises(tmp_path):
+    """Non-mapping YAML root should raise a clear error."""
+    cfg = tmp_path / "bad.yaml"
+    cfg.write_text("- a\n- b\n")
+    with pytest.raises(ValueError, match="mapping"):
+        load_config(cfg)
 
 
 @pytest.mark.skipif(not _find_pdflatex(), reason="pdflatex not available")

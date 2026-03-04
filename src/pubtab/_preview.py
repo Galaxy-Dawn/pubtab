@@ -130,7 +130,7 @@ def ensure_pdflatex() -> str:
 def _strip_table_float(tex: str) -> str:
     """Strip \\begin{table}...\\end{table} float wrapper, keep inner content."""
     import re
-    tex = re.sub(r"\\begin\{table\*?\}\[.*?\]\s*", "", tex)
+    tex = re.sub(r"\\begin\{table\*?\}(?:\[[^\]]*\])?\s*", "", tex)
     tex = re.sub(r"\\end\{table\*?\}\s*", "", tex)
     tex = re.sub(r"\\centering\s*", "", tex)
     tex = re.sub(r"\\caption\{", r"\\captionof{table}{", tex)
@@ -260,6 +260,26 @@ def _pdf_to_png(pdf_path: Path, output: Path, dpi: int = 300) -> None:
             return
     except ImportError:
         pass
+    except Exception:
+        pass
+
+    # Fallback: PyMuPDF (fitz) pure-Python rasterization.
+    try:
+        import fitz
+
+        doc = fitz.open(str(pdf_path))
+        if doc.page_count > 0:
+            page = doc.load_page(0)
+            scale = max(float(dpi) / 72.0, 1.0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            pix.save(str(output))
+            doc.close()
+            if output.exists():
+                return
+        else:
+            doc.close()
+    except Exception:
+        pass
 
     # Fallback: qlmanage (macOS, native high-quality), convert (ImageMagick), sips (last resort)
     if shutil.which("qlmanage"):
@@ -267,27 +287,34 @@ def _pdf_to_png(pdf_path: Path, output: Path, dpi: int = 300) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Calculate target pixel width from PDF points and DPI
             target_size = max(dpi * 6, 1800)  # at least 1800px wide
-            subprocess.run(
+            result = subprocess.run(
                 ["qlmanage", "-t", "-s", str(target_size), "-o", tmpdir, str(pdf_path)],
                 capture_output=True,
             )
             # qlmanage outputs as <filename>.png in the output dir
             pngs = list(Path(tmpdir).glob("*.png"))
-            if pngs:
+            if result.returncode == 0 and pngs:
                 shutil.copy2(pngs[0], output)
                 return
     elif shutil.which("magick"):
-        subprocess.run(
+        result = subprocess.run(
             ["magick", str(pdf_path), "-density", str(dpi), str(output)],
             capture_output=True,
         )
+        if result.returncode == 0 and output.exists():
+            return
     elif platform.system() != "Windows" and shutil.which("convert"):
-        subprocess.run(
+        result = subprocess.run(
             ["convert", "-density", str(dpi), str(pdf_path), str(output)],
             capture_output=True,
         )
+        if result.returncode == 0 and output.exists():
+            return
     else:
         raise RuntimeError(
             "No PDF-to-PNG converter found. Install pdf2image (`pip install pubtab[preview]`) "
             "or ImageMagick."
         )
+
+    if not output.exists():
+        raise RuntimeError("Failed to convert PDF to PNG: no output image generated.")

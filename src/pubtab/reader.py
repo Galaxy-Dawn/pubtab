@@ -4,9 +4,64 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from .models import Cell, CellStyle, TableData
+
+
+def _cell_has_payload(cell: Cell) -> bool:
+    """Return True if a cell carries semantic payload."""
+    v = cell.value
+    if isinstance(v, str):
+        if v.strip():
+            return True
+    elif v not in ("", None):
+        return True
+    if cell.rich_segments:
+        return True
+    if cell.style.diagbox:
+        return True
+    return False
+
+
+def _trim_trailing_empty_cols(cells: list[list[Cell]], num_cols: int) -> int:
+    """Trim only right-side fully empty columns, preserving middle empty columns."""
+    if num_cols <= 1 or not cells:
+        return num_cols
+
+    def _col_has_payload(col_idx: int) -> bool:
+        # Only consider direct payload in this logical column.
+        # Do not treat spanning masters from the left as payload, otherwise
+        # wide title/header merges can block trailing empty-column trimming.
+        for row in cells:
+            if col_idx < len(row) and _cell_has_payload(row[col_idx]):
+                return True
+        return False
+
+    def _shrink_master_span_crossing_col(row: list[Cell], col_idx: int) -> None:
+        for i, cell in enumerate(row):
+            if cell.colspan <= 1:
+                continue
+            if i <= col_idx <= i + cell.colspan - 1:
+                row[i] = Cell(
+                    value=cell.value,
+                    style=cell.style,
+                    rowspan=cell.rowspan,
+                    colspan=max(1, cell.colspan - 1),
+                    rich_segments=cell.rich_segments,
+                )
+                break
+
+    while num_cols > 1:
+        last = num_cols - 1
+        if _col_has_payload(last):
+            break
+        for row in cells:
+            _shrink_master_span_crossing_col(row, last)
+            if 0 <= last < len(row):
+                row.pop(last)
+        num_cols -= 1
+    return num_cols
 
 
 def _extract_rich_segments(raw_value) -> Optional[tuple]:
@@ -74,6 +129,21 @@ def read_excel(
     if path.suffix.lower() == ".xls":
         return _read_xls(path, sheet, header_rows)
     return _read_xlsx(path, sheet, header_rows)
+
+
+def list_excel_sheets(path: Union[str, Path]) -> List[str]:
+    """List sheet names in an Excel file."""
+    path = Path(path)
+    if path.suffix.lower() == ".xls":
+        import xlrd
+
+        wb = xlrd.open_workbook(str(path), formatting_info=False)
+        return list(wb.sheet_names())
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True)
+    return list(wb.sheetnames)
 
 
 def _read_xlsx(
@@ -158,6 +228,7 @@ def _read_xlsx(
     while len(cells) > 1 and all(not c.value and c.value != 0 for c in cells[-1]):
         cells.pop()
     num_rows = len(cells)
+    num_cols = _trim_trailing_empty_cols(cells, num_cols)
 
     if header_rows is None:
         header_rows = max((c.rowspan for c in cells[0]), default=1) if cells else 1
@@ -251,6 +322,12 @@ def _read_xls(
             style = _extract_xls_style(wb, xf_idx)
             row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan))
         cells.append(row_cells)
+
+    # Strip trailing empty rows
+    while len(cells) > 1 and all(not c.value and c.value != 0 for c in cells[-1]):
+        cells.pop()
+    num_rows = len(cells)
+    num_cols = _trim_trailing_empty_cols(cells, num_cols)
 
     if header_rows is None:
         header_rows = max((c.rowspan for c in cells[0]), default=1) if cells else 1

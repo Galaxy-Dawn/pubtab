@@ -23,6 +23,21 @@
 - **Style-Preserving** — Colors, bold, italic, merged cells, rotation, diagonal headers fully retained
 - **Zero-Config Preview** — Auto-installs TinyTeX on first use; one command to get PNG preview
 - **Academic-Optimized** — Leading zero stripping, `\diagbox`, section row detection, `\cmidrule` auto-generation
+- **All-Sheets by Default** — `xlsx2tex` exports every sheet as `*_sheetNN.tex` when `--sheet` is not set
+- **Cleaner Widths** — Reader trims only trailing empty columns (keeps middle spacer columns unchanged)
+- **Overleaf-Friendly Hints** — Every generated `.tex` starts with commented `\usepackage{...}` suggestions
+
+## Recent Fixes
+
+- Fixed ambiguous `\\&` handling in LaTeX parsing:
+  - Keeps malformed in-cell `C\\&L` as literal `C&L`
+  - Avoids collapsing valid row boundaries like `...\\&...`
+- Fixed wrapper leakage from nested tabular/makecell rich-text cells (no more `makecellHe...` artifacts)
+- Improved section separators around active first-column `\multirow`:
+  - Uses partial rules (`\cmidrule`) to avoid striking through group labels
+- Added commented package hints at the top of generated `.tex` files:
+  - Includes theme package suggestions (e.g., `booktabs`, `multirow`, `xcolor`)
+  - Adds `graphicx` hint when `resizebox`/rotation features are used
 
 ## Quick Start
 
@@ -61,10 +76,25 @@ pubtab.preview("table.tex", dpi=300)
 # LaTeX → Excel
 pubtab.tex_to_excel("table.tex", "output.xlsx")
 
-# Multi-table support
-tables = pubtab.read_tex_multi("paper.tex")  # Parse multiple tables
-pubtab.write_excel_multi(tables, "output.xlsx")  # Write to separate sheets
+# Multi-table support (low-level APIs)
+from pathlib import Path
+from pubtab.tex_reader import read_tex_multi
+from pubtab.writer import write_excel_multi
+
+tables = read_tex_multi(Path("paper.tex").read_text())  # Parse multiple tables
+write_excel_multi(tables, "output.xlsx")  # Write to separate sheets
 ```
+
+## All-Sheets Output
+
+- `xlsx2tex` exports all sheets when `--sheet` is not provided.
+- For multi-sheet workbooks with `-o output.tex`, outputs are:
+  - `output_sheet01.tex`, `output_sheet02.tex`, ...
+- With `--sheet`, only the selected sheet is exported.
+- With `--preview`, PNG files follow the same `*_sheetNN.png` naming.
+- Each exported `.tex` starts with commented preamble hints:
+  - `% Theme package hints for this table (add in your preamble):`
+  - `% \usepackage{...}`
 
 ## Visual Example
 
@@ -96,6 +126,7 @@ Reads `.xlsx` (openpyxl) and `.xls` (xlrd) files, producing publication-quality 
 - Auto-generated `\cmidrule` from merged header cells
 - Section row detection (full-width first column → auto `\midrule`)
 - Group separators via `group_separators` parameter
+- Right-side empty-column trimming (trailing only; internal empty columns are preserved)
 - Configurable spacing (`tabcolsep`, `arraystretch`, rule widths)
 - `resizebox` and `font_size` overrides
 - `table*` for two-column spanning (`span_columns=True`)
@@ -117,6 +148,9 @@ Parses LaTeX tables back to Excel with robust command support:
   - 80+ LaTeX symbols → Unicode (±, ×, →, ✓, α-ω, etc.)
   - Subscripts/superscripts with proper formatting
 - **Nested structures**: Nested tabular → `\makecell` conversion
+- **Robust row/cell splitting**:
+  - Handles row boundaries like `...\\&...` correctly
+  - Prevents merged-text artifacts in rich text extraction
 
 ### PNG/PDF Preview
 
@@ -124,7 +158,7 @@ Generate publication-quality previews directly from `.tex` files:
 
 ```bash
 pubtab preview table.tex --dpi 300           # PNG output (default)
-pubtab preview table.tex -o output.pdf       # PDF output
+pubtab preview table.tex --format pdf -o output.pdf  # PDF output
 ```
 
 **TinyTeX auto-installation:** If no system `pdflatex` is found, pubtab automatically downloads and installs TinyTeX (~90 MB) to `~/.pubtab/TinyTeX/`, including required LaTeX packages (booktabs, multirow, xcolor, etc.). This is a one-time setup.
@@ -143,7 +177,7 @@ pip install pubtab[preview]  # installs pdf2image
 |---------|-------------|
 | `pubtab xlsx2tex` | Convert Excel to LaTeX |
 | `pubtab tex2xlsx` | Convert LaTeX to Excel |
-| `pubtab preview` | Generate PNG from .tex |
+| `pubtab preview` | Generate PNG/PDF from .tex |
 | `pubtab themes` | List available themes |
 
 <details>
