@@ -32,6 +32,18 @@
   <p><em>Rendered output from pubtab, preserving style and math expressions.</em></p>
 </div>
 
+<div align="center">
+  <img src="examples/example_colors_italics.png" alt="Colors and italics" width="48%"/>
+  <img src="examples/example_rowcolors_groups.png" alt="Row colors and group headers" width="48%"/>
+</div>
+
+<div align="center">
+  <img src="examples/example_rotation_multirow.png" alt="Rotation and multirow" width="48%"/>
+  <img src="examples/example_symbols_colors.png" alt="Symbols and colors" width="48%"/>
+</div>
+
+These examples cover representative style features: colored cells/text, italic/bold headers, merged cells, rotated text, and symbol rendering.
+
 ### Example A: Excel -> LaTeX (all sheets)
 
 ```bash

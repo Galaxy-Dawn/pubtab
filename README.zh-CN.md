@@ -32,6 +32,18 @@
   <p><em>pubtab 渲染输出示例：样式和数学表达式均可保留。</em></p>
 </div>
 
+<div align="center">
+  <img src="examples/example_colors_italics.png" alt="颜色与斜体" width="48%"/>
+  <img src="examples/example_rowcolors_groups.png" alt="行底色与分组表头" width="48%"/>
+</div>
+
+<div align="center">
+  <img src="examples/example_rotation_multirow.png" alt="旋转与合并单元格" width="48%"/>
+  <img src="examples/example_symbols_colors.png" alt="符号与颜色" width="48%"/>
+</div>
+
+这些示例覆盖了代表性的样式能力：单元格底色/字体颜色、斜体/粗体表头、合并单元格、文字旋转以及符号渲染等。
+
 ### 示例 A：Excel -> LaTeX（全 Sheet）
 
 ```bash
