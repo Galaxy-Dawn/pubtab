@@ -15,29 +15,56 @@
 
 </div>
 
-> Excel to publication-ready LaTeX tables — bidirectional conversion with full style preservation.
+> Convert Excel tables to publication-ready LaTeX (and back) with stable roundtrip behavior.
 
 ## Highlights
 
-- **Bidirectional** — Excel ↔ LaTeX two-way conversion (`.xlsx`/`.xls` ↔ `.tex`)
-- **Style-Preserving** — Colors, bold, italic, merged cells, rotation, diagonal headers fully retained
-- **Zero-Config Preview** — Auto-installs TinyTeX on first use; one command to get PNG preview
-- **Academic-Optimized** — Leading zero stripping, `\diagbox`, section row detection, `\cmidrule` auto-generation
-- **All-Sheets by Default** — `xlsx2tex` exports every sheet as `*_sheetNN.tex` when `--sheet` is not set
-- **Cleaner Widths** — Reader trims only trailing empty columns (keeps middle spacer columns unchanged)
-- **Overleaf-Friendly Hints** — Every generated `.tex` starts with commented `\usepackage{...}` suggestions
+- **Roundtrip Consistency** — Designed for `tex -> xlsx -> tex` workflows with minimal structural drift.
+- **All-Sheets by Default** — `xlsx2tex` exports every sheet as `*_sheetNN.tex` when `--sheet` is not set.
+- **Style Fidelity** — Preserves merged cells, colors, rich text, rotation, and common table semantics.
+- **Publication Preview** — Generate PNG/PDF directly from `.tex` via one CLI entry.
+- **Overleaf-Ready Output** — Generated `.tex` starts with commented `\usepackage{...}` hints.
 
-## Recent Fixes
+## Examples
 
-- Fixed ambiguous `\\&` handling in LaTeX parsing:
-  - Keeps malformed in-cell `C\\&L` as literal `C&L`
-  - Avoids collapsing valid row boundaries like `...\\&...`
-- Fixed wrapper leakage from nested tabular/makecell rich-text cells (no more `makecellHe...` artifacts)
-- Improved section separators around active first-column `\multirow`:
-  - Uses partial rules (`\cmidrule`) to avoid striking through group labels
-- Added commented package hints at the top of generated `.tex` files:
-  - Includes theme package suggestions (e.g., `booktabs`, `multirow`, `xcolor`)
-  - Adds `graphicx` hint when `resizebox`/rotation features are used
+<div align="center">
+  <img src="examples/preview_example.png" alt="Conversion Example" width="600"/>
+  <p><em>Rendered output from pubtab, preserving style and math expressions.</em></p>
+</div>
+
+### Example A: Excel -> LaTeX (all sheets)
+
+```bash
+pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark.tex
+```
+
+Output files (when workbook has multiple sheets):
+
+- `./out/benchmark_sheet01.tex`
+- `./out/benchmark_sheet02.tex`
+- `...`
+
+### Example B: LaTeX -> Excel (multi-table to multi-sheet)
+
+```bash
+pubtab tex2xlsx ./paper/tables.tex -o ./out/tables.xlsx
+```
+
+### Example C: LaTeX -> PNG / PDF preview
+
+```bash
+pubtab preview ./out/benchmark_sheet01.tex -o ./out/benchmark_sheet01.png --dpi 300
+pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet01.pdf
+```
+
+Generated `.tex` header includes package hints (comments only):
+
+```tex
+% Theme package hints for this table (add in your preamble):
+% \usepackage{booktabs}
+% \usepackage{multirow}
+% \usepackage[table]{xcolor}
+```
 
 ## Quick Start
 
@@ -45,180 +72,129 @@
 pip install pubtab
 ```
 
-**CLI:**
+### CLI Quick Start
 
 ```bash
-# Excel → LaTeX
-pubtab xlsx2tex table.xlsx -o output.tex
+# 1) Excel -> LaTeX
+pubtab xlsx2tex table.xlsx -o table.tex
 
-# With options
-pubtab xlsx2tex table.xlsx -o output.tex --theme three_line --caption "Results" --label "tab:results" --preview
+# 2) LaTeX -> Excel
+pubtab tex2xlsx table.tex -o table.xlsx
 
-# LaTeX → Excel (reverse)
-pubtab tex2xlsx paper_table.tex -o recovered.xlsx
-
-# PNG preview from .tex
-pubtab preview output.tex -o preview.png --dpi 300
+# 3) Preview
+pubtab preview table.tex -o table.png --dpi 300
 ```
 
-**Python API:**
+### Python Quick Start
 
 ```python
 import pubtab
 
-# Excel → LaTeX
-pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line",
-                caption="Experimental Results", label="tab:results")
+# Excel -> LaTeX
+pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line")
 
-# LaTeX → PNG preview
+# LaTeX -> Excel
+pubtab.tex_to_excel("table.tex", "table.xlsx")
+
+# Preview (.png by default)
 pubtab.preview("table.tex", dpi=300)
-
-# LaTeX → Excel
-pubtab.tex_to_excel("table.tex", "output.xlsx")
-
-# Multi-table support (low-level APIs)
-from pathlib import Path
-from pubtab.tex_reader import read_tex_multi
-from pubtab.writer import write_excel_multi
-
-tables = read_tex_multi(Path("paper.tex").read_text())  # Parse multiple tables
-write_excel_multi(tables, "output.xlsx")  # Write to separate sheets
 ```
 
-## All-Sheets Output
+## Parameter Guide
 
-- `xlsx2tex` exports all sheets when `--sheet` is not provided.
-- For multi-sheet workbooks with `-o output.tex`, outputs are:
-  - `output_sheet01.tex`, `output_sheet02.tex`, ...
-- With `--sheet`, only the selected sheet is exported.
-- With `--preview`, PNG files follow the same `*_sheetNN.png` naming.
-- Each exported `.tex` starts with commented preamble hints:
-  - `% Theme package hints for this table (add in your preamble):`
-  - `% \usepackage{...}`
+### `pubtab xlsx2tex`
 
-## Visual Example
+| Parameter | Type / Values | Default | Description | Typical Use |
+|---|---|---|---|---|
+| `INPUT_FILE` | path (file or directory) | required | Source `.xlsx` / `.xls` file, or a directory containing them | Main input / batch conversion |
+| `-o, --output` | path | required | Output `.tex` path (multi-sheet uses `*_sheetNN.tex`) | Set destination |
+| `-c, --config` | path | none | YAML config file | Team presets |
+| `--sheet` | sheet name / 0-based index | all sheets | Export only one sheet | Single-sheet export |
+| `--theme` | string | `three_line` | Rendering theme | Switch style |
+| `--caption` | string | none | Table caption | Paper-ready table |
+| `--label` | string | none | LaTeX label | Cross-reference |
+| `--header-rows` | int | auto | Number of header rows | Override detection |
+| `--span-columns` | flag | `false` | Use `table*` | Two-column papers |
+| `--preview` | flag | `false` | Generate PNG preview(s) | Fast visual check |
+| `--position` | string | `htbp` | Float position | Layout tuning |
+| `--font-size` | string | theme default | Set table font size | Compact layout |
+| `--resizebox` | string | none | Wrap with `\resizebox{...}{!}{...}` | Wide tables |
+| `--col-spec` | string | auto | Explicit tabular col spec | Manual alignment |
+| `--dpi` | int | `300` | Preview DPI (`--preview`) | Sharper PNG |
+| `--header-sep` | string | auto | Custom separator under header | Custom rule line |
+| `--upright-scripts` | flag | `false` | Render sub/superscript as upright `\mathrm{}` | Typographic preference |
 
-<div align="center">
-  <img src="examples/preview_example.png" alt="Conversion Example" width="600"/>
-  <p><em>LaTeX table rendered with pubtab — preserving colors, math expressions, and formatting</em></p>
-</div>
+### `pubtab tex2xlsx`
 
-## Features
+| Parameter | Type / Values | Default | Description | Typical Use |
+|---|---|---|---|---|
+| `INPUT_FILE` | path (file or directory) | required | Source `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
+| `-o, --output` | path | required | Output `.xlsx` file | Export workbook |
 
-### Excel → LaTeX Conversion
+### `pubtab preview`
 
-Reads `.xlsx` (openpyxl) and `.xls` (xlrd) files, producing publication-quality LaTeX via Jinja2 templates.
+| Parameter | Type / Values | Default | Description | Typical Use |
+|---|---|---|---|---|
+| `TEX_FILE` | path (file or directory) | required | Input `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
+| `-o, --output` | path | auto by extension | Output path | Set output name |
+| `--theme` | string | `three_line` | Theme package set for compile | Match render theme |
+| `--dpi` | int | `300` | PNG resolution | Image quality |
+| `--format` | `png` / `pdf` | `png` | Output format | PDF for paper assets |
+| `--preamble` | string | none | Extra LaTeX preamble commands | Custom macros |
 
-**Supported cell features:**
-| Feature | LaTeX Output |
-|---------|-------------|
-| Bold / Italic / Underline | `\textbf{}`, `\textit{}`, `\underline{}` |
-| Font color | `\textcolor[RGB]{r,g,b}{}` |
-| Background color | `\cellcolor[RGB]{r,g,b}` |
-| Merged cells (horizontal) | `\multicolumn{n}{c}{}` |
-| Merged cells (vertical) | `\multirow{n}{*}{}` |
-| Text rotation | `\rotatebox[origin=c]{angle}{}` |
-| Diagonal header | `\diagbox{Row}{Col}` |
-| Multi-line content | `\makecell{...\\\\...}` |
-| Rich text (per-segment styling) | Per-segment color/bold/italic |
-
-**Table-level features:**
-- Auto-generated `\cmidrule` from merged header cells
-- Section row detection (full-width first column → auto `\midrule`)
-- Group separators via `group_separators` parameter
-- Right-side empty-column trimming (trailing only; internal empty columns are preserved)
-- Configurable spacing (`tabcolsep`, `arraystretch`, rule widths)
-- `resizebox` and `font_size` overrides
-- `table*` for two-column spanning (`span_columns=True`)
-
-### LaTeX → Excel Conversion
-
-Parses LaTeX tables back to Excel with robust command support:
-
-- **Multi-table support**: `read_tex_multi()` parses multiple tables from one `.tex` file
-- **Cell commands**: `\multicolumn`, `\multirow` (including negative values)
-- **Text styling**: `\textbf`, `\textit`, `\underline`, `\emph`
-- **Color commands**: `\textcolor`, `\cellcolor`, `\rowcolor`, `\rowcolors`
-  - Custom color mixing: `mycolor!50`, `red!30!blue`
-  - Color extraction from math mode subscripts
-- **Layout commands**: `\diagbox`, `\makecell`, `\rotatebox`
-- **Macro expansion**: `\newcommand`/`\renewcommand` (up to 10 rounds)
-- **Custom colors**: `\definecolor` parsing with RGB/HTML/named colors
-- **Math expressions**: Enhanced detection and Unicode conversion
-  - 80+ LaTeX symbols → Unicode (±, ×, →, ✓, α-ω, etc.)
-  - Subscripts/superscripts with proper formatting
-- **Nested structures**: Nested tabular → `\makecell` conversion
-- **Robust row/cell splitting**:
-  - Handles row boundaries like `...\\&...` correctly
-  - Prevents merged-text artifacts in rich text extraction
-
-### PNG/PDF Preview
-
-Generate publication-quality previews directly from `.tex` files:
+### Common Command Recipes
 
 ```bash
-pubtab preview table.tex --dpi 300           # PNG output (default)
-pubtab preview table.tex --format pdf -o output.pdf  # PDF output
+# Export all sheets (default)
+pubtab xlsx2tex report.xlsx -o out/report.tex
+
+# Export a specific sheet only
+pubtab xlsx2tex report.xlsx -o out/report.tex --sheet "Main"
+
+# Two-column table + preview
+pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 ```
 
-**TinyTeX auto-installation:** If no system `pdflatex` is found, pubtab automatically downloads and installs TinyTeX (~90 MB) to `~/.pubtab/TinyTeX/`, including required LaTeX packages (booktabs, multirow, xcolor, etc.). This is a one-time setup.
+## Features by Workflow
 
-**PDF → PNG pipeline:** `pdf2image` → `qlmanage` (macOS) → `convert` (ImageMagick), using the first available tool.
+### 1) Excel -> LaTeX
 
-For best quality, install the optional dependency:
+- Reads `.xlsx` (openpyxl) and `.xls` (xlrd), then renders via Jinja2 themes.
+- Preserves rich formatting: merged cells, colors, bold/italic/underline, rotation, diagbox, and multi-line cells.
+- Applies table-level logic: header rule generation, section/group separators, and trailing-empty-column trimming.
+- Supports all-sheet export by default and deterministic `*_sheetNN` file naming.
 
-```bash
-pip install pubtab[preview]  # installs pdf2image
-```
+### 2) LaTeX -> Excel
 
-## CLI Reference
+- Parses multiple tables from one `.tex` file and writes each table to separate worksheet(s).
+- Handles commands including `\multicolumn`, `\multirow`, `\textcolor`, `\cellcolor`, `\rowcolor`, `\diagbox`, and `\rotatebox`.
+- Expands macros (`\newcommand`/`\renewcommand`) and resolves `\definecolor` variants.
+- Improves robustness for row/cell splitting around escaped separators and nested wrappers.
 
-| Command | Description |
-|---------|-------------|
-| `pubtab xlsx2tex` | Convert Excel to LaTeX |
-| `pubtab tex2xlsx` | Convert LaTeX to Excel |
-| `pubtab preview` | Generate PNG/PDF from .tex |
-| `pubtab themes` | List available themes |
+### 3) Preview Pipeline
 
-<details>
-<summary>Full <code>xlsx2tex</code> options</summary>
-
-```
-pubtab xlsx2tex INPUT -o OUTPUT [OPTIONS]
-
-Options:
-  -o, --output TEXT          Output .tex file (required)
-  -c, --config TEXT          YAML config file
-  --sheet TEXT               Sheet name or 0-based index
-  --theme TEXT               Theme name [default: three_line]
-  --caption TEXT             Table caption
-  --label TEXT               LaTeX label
-  --header-rows INTEGER      Number of header rows
-  --position TEXT            Float position [default: htbp]
-  --font-size TEXT           Font size (e.g. footnotesize)
-  --resizebox TEXT           Resize width (e.g. 0.8\textwidth)
-  --col-spec TEXT            Column spec (e.g. lccc)
-  --span-columns            Use table* for two-column
-  --upright-scripts         Keep subscripts/superscripts upright (no italic)
-  --preview                 Generate PNG preview
-  --dpi INTEGER             Preview DPI [default: 300]
-  --header-sep TEXT          Custom header separator
-```
-
-</details>
+- `pubtab preview` compiles `.tex` to PNG/PDF using available local LaTeX tooling.
+- If system `pdflatex` is unavailable, TinyTeX auto-install can bootstrap compilation.
+- PNG conversion prefers `pdf2image`; falls back to available platform tools.
 
 ## Configuration
 
-All parameters can be set via a YAML config file, with CLI arguments taking precedence:
+Use a YAML file to define repeatable defaults. CLI arguments always take precedence over config values.
 
 ```yaml
 theme: three_line
 caption: "Experimental Results"
 label: "tab:results"
 header_rows: 2
+sheet: null
 span_columns: false
 position: htbp
 font_size: footnotesize
+resizebox: null
+col_spec: null
+header_sep: null
+preview: false
+dpi: 300
 spacing:
   tabcolsep: "4pt"
   arraystretch: "1.2"
@@ -231,11 +207,11 @@ pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 
 ## Theme System
 
-pubtab uses a Jinja2-based theme system. The built-in `three_line` theme produces classic booktabs-style tables.
+pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables.
 
-**Custom themes:** Create a directory under `themes/` with `config.yaml` + `template.tex`:
+Custom theme layout:
 
-```
+```text
 my_theme/
 ├── config.yaml    # packages, spacing, font_size, caption_position
 └── template.tex   # Jinja2 template
@@ -252,7 +228,7 @@ pubtab themes
 <details>
 <summary>View project structure</summary>
 
-```
+```text
 pubtab/
 ├── pyproject.toml
 ├── README.md
@@ -261,14 +237,14 @@ pubtab/
 └── src/pubtab/
     ├── __init__.py        # Public API: xlsx2tex, preview, tex_to_excel
     ├── cli.py             # CLI (click)
-    ├── models.py          # Data models (Cell, TableData, SpacingConfig, ThemeConfig)
+    ├── models.py          # Data models
     ├── reader.py          # Excel reader (.xlsx/.xls)
     ├── renderer.py        # LaTeX renderer (Jinja2)
-    ├── tex_reader.py      # LaTeX parser (tex → TableData)
+    ├── tex_reader.py      # LaTeX parser (tex -> TableData)
     ├── writer.py          # Excel writer
-    ├── _preview.py        # PNG preview (TinyTeX auto-install)
+    ├── _preview.py        # PNG/PDF preview helpers
     ├── config.py          # YAML config loader
-    ├── utils.py           # LaTeX escaping, color conversion
+    ├── utils.py           # Escape and color helpers
     └── themes/
         └── three_line/
             ├── config.yaml

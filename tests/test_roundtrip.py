@@ -5,7 +5,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from pubtab import convert, read_excel, tex_to_excel
+from pubtab import convert, preview, read_excel, tex_to_excel
 from pubtab.models import SpacingConfig, TableData
 from pubtab._preview import _build_standalone, _find_pdflatex, _strip_table_float, compile_pdf
 from pubtab.config import load_config
@@ -141,6 +141,42 @@ def test_xlsx2tex_sheet_option_exports_single_sheet(tmp_path):
     assert "MAINCELL" not in text
 
 
+def test_xlsx2tex_directory_input_exports_all_workbooks(tmp_path):
+    """xlsx2tex should accept a directory and batch-convert all Excel files."""
+    in_dir = tmp_path / "xlsx_in"
+    out_dir = tmp_path / "tex_out"
+    in_dir.mkdir()
+
+    wb1 = openpyxl.Workbook()
+    wb1.active["A1"] = "ONE"
+    wb1.save(in_dir / "a.xlsx")
+
+    wb2 = openpyxl.Workbook()
+    wb2.active["A1"] = "TWO"
+    wb2.save(in_dir / "b.xlsx")
+
+    convert(str(in_dir), str(out_dir))
+
+    a_tex = out_dir / "a.tex"
+    b_tex = out_dir / "b.tex"
+    assert a_tex.exists()
+    assert b_tex.exists()
+    assert "ONE" in a_tex.read_text()
+    assert "TWO" in b_tex.read_text()
+
+
+def test_xlsx2tex_directory_input_requires_output_directory(tmp_path):
+    """Directory input should reject file-like .tex output path."""
+    in_dir = tmp_path / "xlsx_in"
+    in_dir.mkdir()
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = "X"
+    wb.save(in_dir / "a.xlsx")
+
+    with pytest.raises(ValueError, match="output must be a directory path"):
+        convert(str(in_dir), str(tmp_path / "batch.tex"))
+
+
 def test_xlsx2tex_includes_commented_package_hints(tmp_path):
     """Generated tex should include commented package hints for Overleaf users."""
     wb = openpyxl.Workbook()
@@ -174,6 +210,90 @@ def test_xlsx2tex_package_hints_include_graphicx_when_resizebox_enabled(tmp_path
     text = out_tex.read_text()
 
     assert r"% \usepackage{graphicx}" in text
+
+
+def test_tex2xlsx_directory_input_exports_all_tex_files(tmp_path):
+    """tex2xlsx should accept a directory and batch-convert all tex files."""
+    in_dir = tmp_path / "tex_in"
+    out_dir = tmp_path / "xlsx_out"
+    in_dir.mkdir()
+
+    tex = r"""
+\begin{tabular}{cc}
+\toprule
+A & B \\
+\midrule
+1 & 2 \\
+\bottomrule
+\end{tabular}
+"""
+    (in_dir / "a.tex").write_text(tex)
+    (in_dir / "b.tex").write_text(tex.replace("1 & 2", "3 & 4"))
+
+    tex_to_excel(str(in_dir), str(out_dir))
+
+    a_xlsx = out_dir / "a.xlsx"
+    b_xlsx = out_dir / "b.xlsx"
+    assert a_xlsx.exists()
+    assert b_xlsx.exists()
+    assert openpyxl.load_workbook(a_xlsx).active["A2"].value == 1.0
+    assert openpyxl.load_workbook(b_xlsx).active["A2"].value == 3.0
+
+
+def test_tex2xlsx_directory_input_requires_output_directory(tmp_path):
+    """Directory input should reject file-like .xlsx output path."""
+    in_dir = tmp_path / "tex_in"
+    in_dir.mkdir()
+    (in_dir / "a.tex").write_text(
+        "\\begin{tabular}{c}\\toprule A \\\\ \\bottomrule\\end{tabular}"
+    )
+
+    with pytest.raises(ValueError, match="output must be a directory path"):
+        tex_to_excel(str(in_dir), str(tmp_path / "batch.xlsx"))
+
+
+def test_preview_directory_input_exports_pdf_batch(tmp_path):
+    """preview should accept a directory and generate one PDF per tex file."""
+    if _find_pdflatex() is None:
+        pytest.skip("pdflatex not found; skip batch preview test")
+
+    in_dir = tmp_path / "tex_in"
+    out_dir = tmp_path / "pdf_out"
+    in_dir.mkdir()
+
+    tex = r"""
+\begin{table}[htbp]
+\centering
+\begin{tabular}{cc}
+\toprule
+A & B \\
+\midrule
+1 & 2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+"""
+    (in_dir / "a.tex").write_text(tex)
+    (in_dir / "b.tex").write_text(tex.replace("1 & 2", "3 & 4"))
+
+    preview(str(in_dir), output=str(out_dir), format="pdf")
+    assert (out_dir / "a.pdf").exists()
+    assert (out_dir / "b.pdf").exists()
+
+
+def test_preview_directory_input_uses_default_output_dir(tmp_path):
+    """Directory preview without output should use preview_<format> folder."""
+    if _find_pdflatex() is None:
+        pytest.skip("pdflatex not found; skip batch preview test")
+
+    in_dir = tmp_path / "tex_in"
+    in_dir.mkdir()
+    (in_dir / "a.tex").write_text(
+        "\\begin{tabular}{c}\\toprule A \\\\ \\bottomrule\\end{tabular}"
+    )
+
+    preview(str(in_dir), format="pdf")
+    assert (in_dir / "preview_pdf" / "a.pdf").exists()
 
 
 def test_read_excel_trims_only_trailing_empty_columns(tmp_path):

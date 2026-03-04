@@ -27,7 +27,9 @@ def _build_sheet_output_paths(
     """Build output paths for one or multiple sheet exports."""
     output_path = Path(output)
     if sheet_count <= 1:
-        return [output_path]
+        if output_path.suffix.lower() == ".tex":
+            return [output_path]
+        return [output_path / f"{Path(input_file).stem}.tex"]
 
     if output_path.suffix.lower() == ".tex":
         base_dir = output_path.parent
@@ -36,6 +38,17 @@ def _build_sheet_output_paths(
         base_dir = output_path
         base_stem = Path(input_file).stem
     return [base_dir / f"{base_stem}_sheet{i + 1:02d}.tex" for i in range(sheet_count)]
+
+
+def _iter_input_files(directory: Path, suffixes: tuple[str, ...]) -> List[Path]:
+    """List input files in a directory by suffix, sorted by name."""
+    return sorted(
+        [
+            p for p in directory.iterdir()
+            if p.is_file() and p.suffix.lower() in suffixes
+        ],
+        key=lambda p: p.name.lower(),
+    )
 
 
 def xlsx2tex(
@@ -67,12 +80,15 @@ def xlsx2tex(
     wide: bool = _UNSET,
     raw_caption: bool = _UNSET,
 ) -> str:
-    """Convert an Excel file to LaTeX and write .tex file(s).
+    """Convert Excel file(s) to LaTeX and write .tex file(s).
 
     Args:
-        input_file: Path to .xlsx or .xls file.
-        output: Output .tex file path. If multiple sheets are exported, files
-            are saved as `stem_sheetNN.tex` in the same directory.
+        input_file: Path to .xlsx/.xls file, or a directory containing them.
+        output: Output .tex path or output directory.
+            - Single file input: use a `.tex` path (or a directory path).
+            - Directory input: must be a directory path.
+            - If multiple sheets are exported, files are saved as
+              `stem_sheetNN.tex`.
         config: Path to YAML config file (explicit kwargs override config values).
         sheet: Sheet name or 0-based index.
         theme: Theme name.
@@ -99,6 +115,53 @@ def xlsx2tex(
     Returns:
         LaTeX table string of the first exported sheet.
     """
+    input_path = Path(input_file)
+    if input_path.is_dir():
+        output_path = Path(output)
+        if output_path.suffix.lower() == ".tex":
+            raise ValueError(
+                "When input_file is a directory, output must be a directory path."
+            )
+        output_path.mkdir(parents=True, exist_ok=True)
+        excel_files = _iter_input_files(input_path, (".xlsx", ".xls"))
+        if not excel_files:
+            raise ValueError(f"No .xlsx/.xls files found in directory: {input_path}")
+
+        first_tex = ""
+        for excel_file in excel_files:
+            tex_out = output_path / f"{excel_file.stem}.tex"
+            tex = xlsx2tex(
+                excel_file,
+                tex_out,
+                config=config,
+                sheet=sheet,
+                theme=theme,
+                caption=caption,
+                label=label,
+                header_rows=header_rows,
+                position=position,
+                spacing=spacing,
+                font_size=font_size,
+                resizebox=resizebox,
+                col_spec=col_spec,
+                header_sep=header_sep,
+                header_cmidrule=header_cmidrule,
+                span_columns=span_columns,
+                custom_header=custom_header,
+                group_separators=group_separators,
+                cell_formatter=cell_formatter,
+                num_cols=num_cols,
+                preview=preview,
+                preamble=preamble,
+                dpi=dpi,
+                upright_scripts=upright_scripts,
+                wide=wide,
+                raw_caption=raw_caption,
+            )
+            if not first_tex:
+                first_tex = tex
+        return first_tex
+
     # Defaults
     defaults = dict(
         sheet=None, theme="three_line", caption=None, label=None,
@@ -136,16 +199,16 @@ def xlsx2tex(
         p["cell_formatter"] = cfg_formatter
 
     if p["sheet"] is None:
-        sheet_names = list_excel_sheets(input_file)
+        sheet_names = list_excel_sheets(input_path)
         sheet_selectors: List[Union[str, int]] = list(sheet_names)
     else:
         sheet_selectors = [p["sheet"]]
 
-    output_paths = _build_sheet_output_paths(input_file, output, len(sheet_selectors))
+    output_paths = _build_sheet_output_paths(input_path, output, len(sheet_selectors))
     tex_outputs: List[str] = []
 
     for idx, sheet_selector in enumerate(sheet_selectors):
-        table = read_excel(input_file, sheet=sheet_selector, header_rows=p["header_rows"])
+        table = read_excel(input_path, sheet=sheet_selector, header_rows=p["header_rows"])
 
         if p["custom_header"] is not None:
             data_rows = table.cells[table.header_rows:]
@@ -197,19 +260,50 @@ def preview(
     preamble: Optional[str] = None,
     format: str = "png",
 ) -> Path:
-    """Generate a preview from LaTeX content or .tex file.
+    """Generate preview(s) from LaTeX content, .tex file, or directory.
 
     Args:
-        tex_input: LaTeX string or path to .tex file.
-        output: Output file path. Defaults to input stem + .png/.pdf.
+        tex_input: LaTeX string, path to .tex file, or directory of `.tex` files.
+        output: Output file path or output directory.
+            For directory input, defaults to `<tex_input>/preview_<format>/`.
         theme: Theme name.
         dpi: Resolution (PNG only).
         preamble: Extra LaTeX preamble (e.g. custom commands).
         format: Output format, "png" or "pdf".
 
     Returns:
-        Path to generated file.
+        Path to generated file (first output for directory input).
     """
+    tex_path = Path(tex_input)
+    if tex_path.exists() and tex_path.is_dir():
+        tex_files = _iter_input_files(tex_path, (".tex",))
+        if not tex_files:
+            raise ValueError(f"No .tex files found in directory: {tex_path}")
+
+        if output is None:
+            output_dir = tex_path / f"preview_{format}"
+        else:
+            output_dir = Path(output)
+            if output_dir.suffix.lower() in (".png", ".pdf"):
+                raise ValueError(
+                    "When tex_input is a directory, output must be a directory path."
+                )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        first_output: Optional[Path] = None
+        for tex_file in tex_files:
+            out_file = output_dir / f"{tex_file.stem}.{format}"
+            if format == "pdf":
+                generated = compile_pdf(tex_file, output=out_file, theme=theme, preamble=preamble)
+            else:
+                from ._preview import preview as _preview
+                generated = _preview(tex_file, output=out_file, theme=theme, dpi=dpi, preamble=preamble)
+            if first_output is None:
+                first_output = generated
+        if first_output is None:
+            raise RuntimeError("No preview output was generated.")
+        return first_output
+
     if format == "pdf":
         return compile_pdf(tex_input, output=output, theme=theme, preamble=preamble)
 
@@ -253,25 +347,54 @@ def tex_to_excel(
     input_file: Union[str, Path],
     output: Union[str, Path],
 ) -> Path:
-    """Convert a LaTeX .tex file to Excel .xlsx.
+    """Convert LaTeX file(s) to Excel .xlsx.
 
     For multi-table files, each table is written to a separate sheet.
+    For directory input, each `.tex` file is converted to one `.xlsx` file.
 
     Args:
-        input_file: Path to .tex file.
-        output: Output .xlsx file path.
+        input_file: Path to .tex file, or a directory containing `.tex` files.
+        output: Output .xlsx file path or output directory.
+            For directory input, must be a directory path.
 
     Returns:
-        Path to generated .xlsx file.
+        Path to generated .xlsx file (first output for directory input).
     """
     from .tex_reader import read_tex_multi
     from .writer import write_excel, write_excel_multi
 
-    tex_content = Path(input_file).read_text()
+    input_path = Path(input_file)
+    if input_path.is_dir():
+        output_path = Path(output)
+        if output_path.suffix.lower() == ".xlsx":
+            raise ValueError(
+                "When input_file is a directory, output must be a directory path."
+            )
+        output_path.mkdir(parents=True, exist_ok=True)
+        tex_files = _iter_input_files(input_path, (".tex",))
+        if not tex_files:
+            raise ValueError(f"No .tex files found in directory: {input_path}")
+
+        first_output: Optional[Path] = None
+        for tex_file in tex_files:
+            out_file = output_path / f"{tex_file.stem}.xlsx"
+            generated = tex_to_excel(tex_file, out_file)
+            if first_output is None:
+                first_output = generated
+        if first_output is None:
+            raise RuntimeError("No xlsx output was generated.")
+        return first_output
+
+    output_path = Path(output)
+    if output_path.suffix.lower() != ".xlsx":
+        output_path.mkdir(parents=True, exist_ok=True)
+        output_path = output_path / f"{input_path.stem}.xlsx"
+
+    tex_content = input_path.read_text()
     tables = read_tex_multi(tex_content)
     if len(tables) == 1:
-        return write_excel(tables[0], output)
-    return write_excel_multi(tables, output)
+        return write_excel(tables[0], output_path)
+    return write_excel_multi(tables, output_path)
 
 
 # Deprecated aliases

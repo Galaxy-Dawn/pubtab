@@ -57,6 +57,14 @@ def xlsx2tex_cmd(
     from pathlib import Path
     import pubtab as pt
 
+    input_path = Path(input_file)
+    output_path = Path(output)
+    if input_path.is_dir() and output_path.suffix.lower() == ".tex":
+        raise click.BadParameter(
+            "When INPUT_FILE is a directory, --output must be a directory path.",
+            param_hint="--output",
+        )
+
     # Parse sheet as int if numeric
     sheet_val: str | int | None = sheet
     if sheet is not None:
@@ -99,6 +107,46 @@ def xlsx2tex_cmd(
         kwargs["upright_scripts"] = True
 
     pt.xlsx2tex(input_file, output, **kwargs)
+
+    if input_path.is_dir():
+        excel_files = sorted(
+            [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in (".xlsx", ".xls")],
+            key=lambda p: p.name.lower(),
+        )
+        if not excel_files:
+            click.echo(f"No .xlsx/.xls files found in: {input_path}")
+            return
+        if sheet is None:
+            try:
+                from .reader import list_excel_sheets
+
+                tex_total = sum(len(list_excel_sheets(p)) for p in excel_files)
+                first_sheet_count = len(list_excel_sheets(excel_files[0]))
+            except Exception:
+                tex_total = len(excel_files)
+                first_sheet_count = 1
+        else:
+            tex_total = len(excel_files)
+            first_sheet_count = 1
+
+        first_tex = output_path / (
+            f"{excel_files[0].stem}_sheet01.tex"
+            if first_sheet_count > 1
+            else f"{excel_files[0].stem}.tex"
+        )
+        if tex_total <= 1:
+            click.echo(f"Written: {first_tex}")
+        else:
+            click.echo(f"Written: {first_tex} (+{tex_total - 1} additional tex files)")
+
+        if do_preview:
+            first_png = first_tex.with_suffix(".png")
+            if tex_total <= 1:
+                click.echo(f"Preview: {first_png}")
+            else:
+                click.echo(f"Preview: {first_png} (+{tex_total - 1} additional sheet previews)")
+        return
+
     sheet_count = 1
     if sheet is None:
         try:
@@ -138,9 +186,34 @@ def themes_cmd() -> None:
 @click.option("-o", "--output", required=True, help="Output .xlsx file path.")
 def tex2xlsx(input_file: str, output: str) -> None:
     """Convert a LaTeX .tex file to Excel .xlsx."""
+    from pathlib import Path
+
     import pubtab as pt
 
+    input_path = Path(input_file)
+    output_path = Path(output)
+    if input_path.is_dir() and output_path.suffix.lower() == ".xlsx":
+        raise click.BadParameter(
+            "When INPUT_FILE is a directory, --output must be a directory path.",
+            param_hint="--output",
+        )
+
     result = pt.tex_to_excel(input_file, output)
+    if input_path.is_dir():
+        tex_files = sorted(
+            [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() == ".tex"],
+            key=lambda p: p.name.lower(),
+        )
+        if not tex_files:
+            click.echo(f"No .tex files found in: {input_path}")
+            return
+        first_xlsx = output_path / f"{tex_files[0].stem}.xlsx"
+        if len(tex_files) <= 1:
+            click.echo(f"Written: {first_xlsx}")
+        else:
+            click.echo(f"Written: {first_xlsx} (+{len(tex_files) - 1} additional xlsx files)")
+        return
+
     click.echo(f"Written: {result}")
 
 
@@ -153,9 +226,34 @@ def tex2xlsx(input_file: str, output: str) -> None:
 @click.option("--preamble", default=None, help="Extra LaTeX preamble (e.g. custom commands).")
 def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, fmt: str, preamble: str | None) -> None:
     """Generate PNG or PDF from a .tex file."""
+    from pathlib import Path
+
     import pubtab as pt
 
+    input_path = Path(tex_file)
+    if input_path.is_dir() and output is not None and Path(output).suffix.lower() in (".png", ".pdf"):
+        raise click.BadParameter(
+            "When TEX_FILE is a directory, --output must be a directory path.",
+            param_hint="--output",
+        )
+
     result = pt.preview(tex_file, output=output, theme=theme, dpi=dpi, preamble=preamble, format=fmt)
+    if input_path.is_dir():
+        tex_files = sorted(
+            [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() == ".tex"],
+            key=lambda p: p.name.lower(),
+        )
+        if not tex_files:
+            click.echo(f"No .tex files found in: {input_path}")
+            return
+        output_dir = Path(output) if output is not None else (input_path / f"preview_{fmt}")
+        first_out = output_dir / f"{tex_files[0].stem}.{fmt}"
+        if len(tex_files) <= 1:
+            click.echo(f"Output: {first_out}")
+        else:
+            click.echo(f"Output: {first_out} (+{len(tex_files) - 1} additional {fmt} files)")
+        return
+
     click.echo(f"Output: {result}")
 
 
