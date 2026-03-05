@@ -469,6 +469,23 @@ M1 & 68.2 & 27.0\\% & 83.2 \\
     assert table.cells[1][2].value == "27.0%"
 
 
+def test_tex_reader_malformed_double_backslash_percent_keeps_header_cell():
+    """Header cell `\\% Diff` should stay in the same header row."""
+    tex = r"""
+\begin{tabular}{ccc}
+\toprule
+Metric & \\% Diff & Score \\
+\midrule
+M1 & 2.4\\% & 88.0 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 2
+    assert table.cells[0][1].value == "% Diff"
+    assert table.cells[1][1].value == "2.4%"
+
+
 def test_tex_reader_malformed_double_backslash_hash_keeps_header():
     """`\\#` artifacts should remain header text, not create extra rows."""
     tex = r"""
@@ -500,6 +517,23 @@ v1 & v2\\#Tag & 1 \\
     assert table.num_rows == 3
     assert table.cells[1][0].value == "v1"
     assert table.cells[2][0].value == "#Tag"
+
+
+def test_tex_reader_rowbreak_followed_by_percent_is_not_collapsed():
+    """`...\\\\%...` row boundaries must stay as row separators."""
+    tex = r"""
+\begin{tabular}{cc}
+\toprule
+A & B \\
+\midrule
+v1 & v2\\%Tag & 1 \\
+\bottomrule
+\end{tabular}
+"""
+    table = read_tex(tex)
+    assert table.num_rows == 3
+    assert table.cells[1][0].value == "v1"
+    assert table.cells[2][0].value == "%Tag"
 
 
 def test_tex_reader_malformed_double_backslash_ampersand_keeps_single_row():

@@ -312,8 +312,8 @@ def _pdf_to_png(pdf_path: Path, output: Path, dpi: int = 300) -> None:
             return
     else:
         raise RuntimeError(
-            "No PDF-to-PNG converter found. Install pdf2image (`pip install pubtab[preview]`) "
-            "or ImageMagick."
+            "No PDF-to-PNG converter found. Reinstall pubtab to ensure default "
+            "PNG backends (`pdf2image`, PyMuPDF) are available, or use ImageMagick."
         )
 
     if not output.exists():

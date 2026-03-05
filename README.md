@@ -27,22 +27,41 @@
 
 ## Examples
 
-<div align="center">
-  <img src="examples/preview_example.png" alt="Conversion Example" width="600"/>
-  <p><em>Rendered output from pubtab, preserving style and math expressions.</em></p>
-</div>
+### Showcase
 
-<div align="center">
-  <img src="examples/example_colors_italics.png" alt="Colors and italics" width="48%"/>
-  <img src="examples/example_rowcolors_groups.png" alt="Row colors and group headers" width="48%"/>
-</div>
+<p align="center">
+  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="48%" alt="Example table4"></a>
+  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="48%" alt="Example table7"></a>
+</p>
+<p align="center">
+  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="48%" alt="Example table8"></a>
+  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="48%" alt="Example table10"></a>
+</p>
 
-<div align="center">
-  <img src="examples/example_rotation_multirow.png" alt="Rotation and multirow" width="48%"/>
-  <img src="examples/example_symbols_colors.png" alt="Symbols and colors" width="48%"/>
-</div>
+<details>
+<summary><strong>Full Gallery (11 examples)</strong></summary>
 
-These examples cover representative style features: colored cells/text, italic/bold headers, merged cells, rotated text, and symbol rendering.
+<p align="center">
+  <a href="examples/table1.xlsx"><img src="examples/table1.png" width="31%" alt="table1"></a>
+  <a href="examples/table2.xlsx"><img src="examples/table2.png" width="31%" alt="table2"></a>
+  <a href="examples/table3.xlsx"><img src="examples/table3.png" width="31%" alt="table3"></a>
+</p>
+<p align="center">
+  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="31%" alt="table4"></a>
+  <a href="examples/table5.xlsx"><img src="examples/table5.png" width="31%" alt="table5"></a>
+  <a href="examples/table6.xlsx"><img src="examples/table6.png" width="31%" alt="table6"></a>
+</p>
+<p align="center">
+  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="31%" alt="table7"></a>
+  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="31%" alt="table8"></a>
+  <a href="examples/table9.xlsx"><img src="examples/table9.png" width="31%" alt="table9"></a>
+</p>
+<p align="center">
+  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="31%" alt="table10"></a>
+  <a href="examples/table11.xlsx"><img src="examples/table11.png" width="31%" alt="table11"></a>
+</p>
+
+</details>
 
 ### Example A: Excel -> LaTeX (all sheets)
 
@@ -84,6 +103,8 @@ Generated `.tex` header includes package hints (comments only):
 pip install pubtab
 ```
 
+Current PyPI release: `1.0.0`
+
 ### CLI Quick Start
 
 ```bash
@@ -95,6 +116,11 @@ pubtab tex2xlsx table.tex -o table.xlsx
 
 # 3) Preview
 pubtab preview table.tex -o table.png --dpi 300
+
+# 4) Native batch pipeline (directory input)
+pubtab tex2xlsx ./tables_tex -o ./out/xlsx
+pubtab xlsx2tex ./out/xlsx -o ./out/tex
+pubtab preview ./out/tex -o ./out/png --format png --dpi 300
 ```
 
 ### Python Quick Start
@@ -110,6 +136,11 @@ pubtab.tex_to_excel("table.tex", "table.xlsx")
 
 # Preview (.png by default)
 pubtab.preview("table.tex", dpi=300)
+
+# Native batch pipeline (directory input)
+pubtab.tex_to_excel("tables_tex", "out/xlsx")
+pubtab.xlsx2tex("out/xlsx", output="out/tex")
+pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 ```
 
 ## Parameter Guide
@@ -119,7 +150,7 @@ pubtab.preview("table.tex", dpi=300)
 | Parameter | Type / Values | Default | Description | Typical Use |
 |---|---|---|---|---|
 | `INPUT_FILE` | path (file or directory) | required | Source `.xlsx` / `.xls` file, or a directory containing them | Main input / batch conversion |
-| `-o, --output` | path | required | Output `.tex` path (multi-sheet uses `*_sheetNN.tex`) | Set destination |
+| `-o, --output` | path | required | Output `.tex` path or output directory; when `INPUT_FILE` is a directory, this must be a directory | Set destination |
 | `-c, --config` | path | none | YAML config file | Team presets |
 | `--sheet` | sheet name / 0-based index | all sheets | Export only one sheet | Single-sheet export |
 | `--theme` | string | `three_line` | Rendering theme | Switch style |
@@ -141,14 +172,14 @@ pubtab.preview("table.tex", dpi=300)
 | Parameter | Type / Values | Default | Description | Typical Use |
 |---|---|---|---|---|
 | `INPUT_FILE` | path (file or directory) | required | Source `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
-| `-o, --output` | path | required | Output `.xlsx` file | Export workbook |
+| `-o, --output` | path | required | Output `.xlsx` path or output directory; when `INPUT_FILE` is a directory, this must be a directory | Export workbook |
 
 ### `pubtab preview`
 
 | Parameter | Type / Values | Default | Description | Typical Use |
 |---|---|---|---|---|
 | `TEX_FILE` | path (file or directory) | required | Input `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
-| `-o, --output` | path | auto by extension | Output path | Set output name |
+| `-o, --output` | path | auto by extension | Output file path or output directory; when `TEX_FILE` is a directory, this must be a directory | Set output name |
 | `--theme` | string | `three_line` | Theme package set for compile | Match render theme |
 | `--dpi` | int | `300` | PNG resolution | Image quality |
 | `--format` | `png` / `pdf` | `png` | Output format | PDF for paper assets |
@@ -187,7 +218,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 
 - `pubtab preview` compiles `.tex` to PNG/PDF using available local LaTeX tooling.
 - If system `pdflatex` is unavailable, TinyTeX auto-install can bootstrap compilation.
-- PNG conversion prefers `pdf2image`; falls back to available platform tools.
+- PNG conversion works out of the box after `pip install pubtab` (bundled `pdf2image` + PyMuPDF backends).
 
 ## Configuration
 
@@ -265,9 +296,13 @@ pubtab/
 
 </details>
 
+## References
+
+- Test data includes `.tex` files referenced from [Azhizhi_akeyan](https://github.com/longkaifang/Azhizhi_akeyan).
+
 ## Contributing
 
-Issues and pull requests are welcome at [GitHub](https://github.com/Galaxy-Dawn/pubtab).
+Issues and pull requests are welcome at [GitHub](https://github.com/gaoruizhang/pubtab).
 
 ## License
 

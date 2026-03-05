@@ -288,8 +288,18 @@ def read_tex(
     # Keep this conservative to avoid collapsing valid row boundaries like
     # `...\\#Tag & ...` where the next row intentionally starts with `\#...`.
     # 1) Numeric percent patterns like `27.0\\%` -> `27.0\%`.
-    body = re.sub(r"(?<=[0-9])\\\\(?=%)", r"\\", body)
-    # 2) Cell-start hash patterns like `& \\#P` -> `& \#P` (common in headers).
+    # Only rewrite when `%` is followed by a cell/row boundary, so real row
+    # separators like `v2\\%Tag & ...` are preserved.
+    body = re.sub(r"(?<=[0-9])\\\\(?=%(?:\s*(?:&|\\\\|$)))", r"\\", body)
+    # 2) Mid-row percent header artifacts like `& \\% Diff &` -> `& \% Diff &`.
+    # Restrict to `% <word>` patterns to avoid collapsing real row breaks like
+    # `...\\%Tag & ...` (next row starts with `%Tag`).
+    body = re.sub(
+        r"&(\s*)\\\\(%\s+[A-Za-z](?:[^\\\n]|\\(?!\\))*?)&",
+        r"&\1\\\2&",
+        body,
+    )
+    # 3) Cell-start hash patterns like `& \\#P` -> `& \#P` (common in headers).
     body = re.sub(r"(^|[&\n])(\s*)\\\\(?=#)", r"\1\2\\", body)
     # `\\&` is ambiguous:
     # - valid row boundary can be written as `...\\&...` (next row starts with empty col)

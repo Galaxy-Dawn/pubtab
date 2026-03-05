@@ -27,22 +27,41 @@
 
 ## 示例
 
-<div align="center">
-  <img src="examples/preview_example.png" alt="转换示例" width="600"/>
-  <p><em>pubtab 渲染输出示例：样式和数学表达式均可保留。</em></p>
-</div>
+### 精选展示
 
-<div align="center">
-  <img src="examples/example_colors_italics.png" alt="颜色与斜体" width="48%"/>
-  <img src="examples/example_rowcolors_groups.png" alt="行底色与分组表头" width="48%"/>
-</div>
+<p align="center">
+  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="48%" alt="示例 table4"></a>
+  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="48%" alt="示例 table7"></a>
+</p>
+<p align="center">
+  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="48%" alt="示例 table8"></a>
+  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="48%" alt="示例 table10"></a>
+</p>
 
-<div align="center">
-  <img src="examples/example_rotation_multirow.png" alt="旋转与合并单元格" width="48%"/>
-  <img src="examples/example_symbols_colors.png" alt="符号与颜色" width="48%"/>
-</div>
+<details>
+<summary><strong>完整图库（11 个示例）</strong></summary>
 
-这些示例覆盖了代表性的样式能力：单元格底色/字体颜色、斜体/粗体表头、合并单元格、文字旋转以及符号渲染等。
+<p align="center">
+  <a href="examples/table1.xlsx"><img src="examples/table1.png" width="31%" alt="table1"></a>
+  <a href="examples/table2.xlsx"><img src="examples/table2.png" width="31%" alt="table2"></a>
+  <a href="examples/table3.xlsx"><img src="examples/table3.png" width="31%" alt="table3"></a>
+</p>
+<p align="center">
+  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="31%" alt="table4"></a>
+  <a href="examples/table5.xlsx"><img src="examples/table5.png" width="31%" alt="table5"></a>
+  <a href="examples/table6.xlsx"><img src="examples/table6.png" width="31%" alt="table6"></a>
+</p>
+<p align="center">
+  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="31%" alt="table7"></a>
+  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="31%" alt="table8"></a>
+  <a href="examples/table9.xlsx"><img src="examples/table9.png" width="31%" alt="table9"></a>
+</p>
+<p align="center">
+  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="31%" alt="table10"></a>
+  <a href="examples/table11.xlsx"><img src="examples/table11.png" width="31%" alt="table11"></a>
+</p>
+
+</details>
 
 ### 示例 A：Excel -> LaTeX（全 Sheet）
 
@@ -84,6 +103,8 @@ pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet
 pip install pubtab
 ```
 
+当前 PyPI 发布版本：`1.0.0`
+
 ### CLI 快速上手
 
 ```bash
@@ -95,6 +116,11 @@ pubtab tex2xlsx table.tex -o table.xlsx
 
 # 3) 预览
 pubtab preview table.tex -o table.png --dpi 300
+
+# 4) 原生批量流程（目录输入）
+pubtab tex2xlsx ./tables_tex -o ./out/xlsx
+pubtab xlsx2tex ./out/xlsx -o ./out/tex
+pubtab preview ./out/tex -o ./out/png --format png --dpi 300
 ```
 
 ### Python 快速上手
@@ -110,16 +136,21 @@ pubtab.tex_to_excel("table.tex", "table.xlsx")
 
 # 预览（默认输出 .png）
 pubtab.preview("table.tex", dpi=300)
+
+# 原生批量流程（目录输入）
+pubtab.tex_to_excel("tables_tex", "out/xlsx")
+pubtab.xlsx2tex("out/xlsx", output="out/tex")
+pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 ```
 
-## 参数说明（Parameter Guide）
+## 参数说明
 
 ### `pubtab xlsx2tex`
 
 | 参数 | 类型 / 取值 | 默认值 | 含义 | 常见场景 |
 |---|---|---|---|---|
 | `INPUT_FILE` | 路径（文件或目录） | 必填 | 输入 `.xlsx` / `.xls` 文件，或包含它们的目录 | 主输入 / 批量转换 |
-| `-o, --output` | 路径 | 必填 | 输出 `.tex` 路径（多 sheet 会生成 `*_sheetNN.tex`） | 指定输出目录 |
+| `-o, --output` | 路径 | 必填 | 输出 `.tex` 文件路径或输出目录；当 `INPUT_FILE` 为目录时，此项必须是目录 | 指定输出位置 |
 | `-c, --config` | 路径 | 无 | YAML 配置文件 | 团队统一配置 |
 | `--sheet` | sheet 名 / 0 起始索引 | 全部 sheet | 仅导出指定 sheet | 单 sheet 调试 |
 | `--theme` | 字符串 | `three_line` | 渲染主题 | 切换样式 |
@@ -141,14 +172,14 @@ pubtab.preview("table.tex", dpi=300)
 | 参数 | 类型 / 取值 | 默认值 | 含义 | 常见场景 |
 |---|---|---|---|---|
 | `INPUT_FILE` | 路径（文件或目录） | 必填 | 输入 `.tex` 文件，或包含 `.tex` 的目录 | 主输入 / 批量转换 |
-| `-o, --output` | 路径 | 必填 | 输出 `.xlsx` 文件 | 导出工作簿 |
+| `-o, --output` | 路径 | 必填 | 输出 `.xlsx` 文件路径或输出目录；当 `INPUT_FILE` 为目录时，此项必须是目录 | 导出工作簿 |
 
 ### `pubtab preview`
 
 | 参数 | 类型 / 取值 | 默认值 | 含义 | 常见场景 |
 |---|---|---|---|---|
 | `TEX_FILE` | 路径（文件或目录） | 必填 | 输入 `.tex` 文件，或包含 `.tex` 的目录 | 主输入 / 批量转换 |
-| `-o, --output` | 路径 | 按扩展名自动推断 | 输出路径 | 指定文件名 |
+| `-o, --output` | 路径 | 按扩展名自动推断 | 输出文件路径或输出目录；当 `TEX_FILE` 为目录时，此项必须是目录 | 指定输出名称 |
 | `--theme` | 字符串 | `three_line` | 编译时使用的主题包集合 | 对齐渲染主题 |
 | `--dpi` | 整数 | `300` | PNG 分辨率 | 提升清晰度 |
 | `--format` | `png` / `pdf` | `png` | 输出格式 | 论文资产导出 |
@@ -187,7 +218,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 
 - `pubtab preview` 可把 `.tex` 直接编译为 PNG/PDF。
 - 若系统缺少 `pdflatex`，可通过 TinyTeX 自动安装补齐编译环境。
-- PNG 优先使用 `pdf2image`，并有平台级后备路径。
+- 默认 `pip install pubtab` 后即可使用 PNG 预览（内置 `pdf2image` + PyMuPDF 双后端）。
 
 ## 配置文件（Configuration）
 
@@ -265,9 +296,13 @@ pubtab/
 
 </details>
 
+## 参考
+
+- 测试数据中参考了 [Azhizhi_akeyan](https://github.com/longkaifang/Azhizhi_akeyan) 仓库中的部分 `.tex` 文件。
+
 ## 贡献
 
-欢迎在 [GitHub](https://github.com/Galaxy-Dawn/pubtab) 提交 Issue 和 Pull Request。
+欢迎在 [GitHub](https://github.com/gaoruizhang/pubtab) 提交 Issue 和 Pull Request。
 
 ## 许可证
 

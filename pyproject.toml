@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pubtab"
-version = "0.1.0"
+version = "1.0.0"
 description = "Excel to publication-ready LaTeX tables"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -29,6 +29,8 @@ dependencies = [
     "jinja2>=3.1",
     "click>=8.0",
     "pyyaml>=6.0",
+    "pymupdf>=1.23.0",
+    "pdf2image>=1.16",
 ]
 
 [project.optional-dependencies]
