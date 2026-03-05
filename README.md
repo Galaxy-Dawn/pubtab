@@ -2,7 +2,7 @@
 
 <div align="center">
 
-  <img src="LOGO.png" alt="pubtab logo" width="100%"/>
+  <img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/LOGO.png" alt="pubtab logo" width="100%"/>
 
   <p>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/v/pubtab?style=flat-square&color=blue" alt="PyPI Version"/></a>
@@ -11,7 +11,7 @@
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/dm/pubtab?style=flat-square&color=orange" alt="Downloads"/></a>
   </p>
 
-  <strong>Language</strong>: <a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a>
+  <strong>Language</strong>: <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/README.md">English</a> | <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/README.zh-CN.md">中文</a>
 
 </div>
 
@@ -30,35 +30,35 @@
 ### Showcase
 
 <p align="center">
-  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="48%" alt="Example table4"></a>
-  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="48%" alt="Example table7"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table4.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table4.png" width="48%" alt="Example table4"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table7.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table7.png" width="48%" alt="Example table7"></a>
 </p>
 <p align="center">
-  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="48%" alt="Example table8"></a>
-  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="48%" alt="Example table10"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table8.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table8.png" width="48%" alt="Example table8"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table10.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table10.png" width="48%" alt="Example table10"></a>
 </p>
 
 <details>
 <summary><strong>Full Gallery (11 examples)</strong></summary>
 
 <p align="center">
-  <a href="examples/table1.xlsx"><img src="examples/table1.png" width="31%" alt="table1"></a>
-  <a href="examples/table2.xlsx"><img src="examples/table2.png" width="31%" alt="table2"></a>
-  <a href="examples/table3.xlsx"><img src="examples/table3.png" width="31%" alt="table3"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table1.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table1.png" width="31%" alt="table1"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table2.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table2.png" width="31%" alt="table2"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table3.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table3.png" width="31%" alt="table3"></a>
 </p>
 <p align="center">
-  <a href="examples/table4.xlsx"><img src="examples/table4.png" width="31%" alt="table4"></a>
-  <a href="examples/table5.xlsx"><img src="examples/table5.png" width="31%" alt="table5"></a>
-  <a href="examples/table6.xlsx"><img src="examples/table6.png" width="31%" alt="table6"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table4.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table4.png" width="31%" alt="table4"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table5.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table5.png" width="31%" alt="table5"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table6.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table6.png" width="31%" alt="table6"></a>
 </p>
 <p align="center">
-  <a href="examples/table7.xlsx"><img src="examples/table7.png" width="31%" alt="table7"></a>
-  <a href="examples/table8.xlsx"><img src="examples/table8.png" width="31%" alt="table8"></a>
-  <a href="examples/table9.xlsx"><img src="examples/table9.png" width="31%" alt="table9"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table7.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table7.png" width="31%" alt="table7"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table8.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table8.png" width="31%" alt="table8"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table9.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table9.png" width="31%" alt="table9"></a>
 </p>
 <p align="center">
-  <a href="examples/table10.xlsx"><img src="examples/table10.png" width="31%" alt="table10"></a>
-  <a href="examples/table11.xlsx"><img src="examples/table11.png" width="31%" alt="table11"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table10.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table10.png" width="31%" alt="table10"></a>
+  <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/examples/table11.xlsx"><img src="https://raw.githubusercontent.com/Galaxy-Dawn/pubtab/main/examples/table11.png" width="31%" alt="table11"></a>
 </p>
 
 </details>
@@ -103,7 +103,7 @@ Generated `.tex` header includes package hints (comments only):
 pip install pubtab
 ```
 
-Current PyPI release: `1.0.0`
+Current PyPI release: `1.0.1`
 
 ### CLI Quick Start
 
@@ -302,8 +302,8 @@ pubtab/
 
 ## Contributing
 
-Issues and pull requests are welcome at [GitHub](https://github.com/gaoruizhang/pubtab).
+Issues and pull requests are welcome at [GitHub](https://github.com/Galaxy-Dawn/pubtab).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/Galaxy-Dawn/pubtab/blob/main/LICENSE)

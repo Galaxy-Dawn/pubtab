@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pubtab"
-version = "1.0.0"
+version = "1.0.1"
 description = "Excel to publication-ready LaTeX tables"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -38,9 +38,9 @@ preview = ["pdf2image>=1.16"]
 dev = ["pytest>=7.0"]
 
 [project.urls]
-Homepage = "https://github.com/gaoruizhang/pubtab"
-Repository = "https://github.com/gaoruizhang/pubtab"
-Issues = "https://github.com/gaoruizhang/pubtab/issues"
+Homepage = "https://github.com/Galaxy-Dawn/pubtab"
+Repository = "https://github.com/Galaxy-Dawn/pubtab"
+Issues = "https://github.com/Galaxy-Dawn/pubtab/issues"
 
 [project.scripts]
 pubtab = "pubtab.cli:main"
