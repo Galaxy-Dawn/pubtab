@@ -103,7 +103,7 @@ Generated `.tex` header includes package hints (comments only):
 pip install pubtab
 ```
 
-Current PyPI release: `1.0.1`
+Latest PyPI release: [pubtab on PyPI](https://pypi.org/project/pubtab/)
 
 ### CLI Quick Start
 

@@ -103,7 +103,7 @@ pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet
 pip install pubtab
 ```
 
-当前 PyPI 发布版本：`1.0.1`
+最新 PyPI 版本：[pubtab on PyPI](https://pypi.org/project/pubtab/)
 
 ### CLI 快速上手
 
