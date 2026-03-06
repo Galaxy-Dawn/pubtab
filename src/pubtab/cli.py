@@ -25,7 +25,10 @@ def main() -> None:
 @click.option("--preview", "do_preview", is_flag=True, help="Generate PNG preview.")
 @click.option("--position", default=None, help="Float position [default: htbp].")
 @click.option("--font-size", default=None, help="Font size (e.g. footnotesize).")
-@click.option("--resizebox", default=None, help="Resize width (e.g. 0.8\\textwidth).")
+@click.option("--resizebox", default=None, help="(Deprecated) Resize width (e.g. 0.8\\textwidth).")
+@click.option("--with-resizebox", "with_resizebox", is_flag=True, help="Wrap tabular with \\resizebox.")
+@click.option("--without-resizebox", "without_resizebox", is_flag=True, help="Disable \\resizebox wrapper.")
+@click.option("--resizebox-width", default="\\linewidth", show_default=True, help="Resizebox width used with --with-resizebox.")
 @click.option("--col-spec", default=None, help="Column spec (e.g. lccc).")
 @click.option("--dpi", default=None, type=int, help="Preview DPI [default: 300].")
 @click.option("--header-sep", default=None, help="Custom header separator.")
@@ -44,6 +47,9 @@ def xlsx2tex_cmd(
     position: str | None,
     font_size: str | None,
     resizebox: str | None,
+    with_resizebox: bool,
+    without_resizebox: bool,
+    resizebox_width: str,
     col_spec: str | None,
     dpi: int | None,
     header_sep: str | None,
@@ -95,7 +101,16 @@ def xlsx2tex_cmd(
         kwargs["position"] = position
     if font_size is not None:
         kwargs["font_size"] = font_size
-    if resizebox is not None:
+    if with_resizebox and without_resizebox:
+        raise click.BadParameter(
+            "--with-resizebox and --without-resizebox cannot be used together."
+        )
+    if with_resizebox:
+        kwargs["resizebox"] = resizebox_width
+    elif without_resizebox:
+        # Explicit None overrides config/default resizebox settings.
+        kwargs["resizebox"] = None
+    elif resizebox is not None:
         kwargs["resizebox"] = resizebox
     if col_spec is not None:
         kwargs["col_spec"] = col_spec

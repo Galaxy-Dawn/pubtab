@@ -162,6 +162,9 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--position` | 字符串 | `htbp` | 浮动位置参数 | 微调版式 |
 | `--font-size` | 字符串 | 主题默认 | 表格字号 | 压缩宽表 |
 | `--resizebox` | 字符串 | 无 | 包裹 `\resizebox{...}{!}{...}` | 超宽表格 |
+| `--with-resizebox` | 开关 | `false` | 启用 `\resizebox` 包裹 | 强制宽度控制 |
+| `--without-resizebox` | 开关 | `false` | 禁用 `\resizebox` 包裹 | 保持原始宽度 |
+| `--resizebox-width` | 字符串 | `\linewidth` | `--with-resizebox` 使用的宽度 | 自定义缩放宽度 |
 | `--col-spec` | 字符串 | 自动 | 指定列格式 | 手动控制对齐 |
 | `--dpi` | 整数 | `300` | 预览 DPI（配合 `--preview`） | 高清输出 |
 | `--header-sep` | 字符串 | 自动 | 自定义表头分隔线 | 自定义线条 |
@@ -218,6 +221,8 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 
 - `pubtab preview` 可把 `.tex` 直接编译为 PNG/PDF。
 - 若系统缺少 `pdflatex`，可通过 TinyTeX 自动安装补齐编译环境。
+- 若编译日志出现缺失 `.sty`，pubtab 会解析缺失项并尝试执行 `tlmgr install <package>` 后自动重试。
+- TinyTeX 下载流程已增强证书兼容性；证书失败时会输出可执行的排查建议。
 - 默认 `pip install pubtab` 后即可使用 PNG 预览（内置 `pdf2image` + PyMuPDF 双后端）。
 
 ## 配置文件（Configuration）

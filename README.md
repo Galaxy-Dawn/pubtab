@@ -162,6 +162,9 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--position` | string | `htbp` | Float position | Layout tuning |
 | `--font-size` | string | theme default | Set table font size | Compact layout |
 | `--resizebox` | string | none | Wrap with `\resizebox{...}{!}{...}` | Wide tables |
+| `--with-resizebox` | flag | `false` | Enable `\resizebox` wrapper | Force width control |
+| `--without-resizebox` | flag | `false` | Disable `\resizebox` wrapper | Keep raw tabular width |
+| `--resizebox-width` | string | `\linewidth` | Width used by `--with-resizebox` | Custom scaling |
 | `--col-spec` | string | auto | Explicit tabular col spec | Manual alignment |
 | `--dpi` | int | `300` | Preview DPI (`--preview`) | Sharper PNG |
 | `--header-sep` | string | auto | Custom separator under header | Custom rule line |
@@ -218,6 +221,8 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 
 - `pubtab preview` compiles `.tex` to PNG/PDF using available local LaTeX tooling.
 - If system `pdflatex` is unavailable, TinyTeX auto-install can bootstrap compilation.
+- On missing `.sty` errors, pubtab can parse the missing package, run `tlmgr install <package>`, and retry compile automatically.
+- TinyTeX download uses cert-friendly SSL handling and now provides actionable hints for certificate failures.
 - PNG conversion works out of the box after `pip install pubtab` (bundled `pdf2image` + PyMuPDF backends).
 
 ## Configuration

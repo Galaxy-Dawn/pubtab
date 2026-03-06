@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import platform
+import re
+import ssl
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional, Union
@@ -45,6 +48,77 @@ def _find_pdflatex() -> Optional[str]:
     return None
 
 
+def _build_download_ssl_context() -> Optional[ssl.SSLContext]:
+    """Build an SSL context with certifi when available."""
+    try:
+        import certifi  # type: ignore
+    except Exception:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def _download_archive(url: str, archive: Path) -> None:
+    """Download TinyTeX archive with cert-friendly SSL handling."""
+    req = urllib.request.Request(url, headers={"User-Agent": "pubtab/1.x"})
+    context = _build_download_ssl_context()
+    try:
+        with urllib.request.urlopen(req, context=context) as resp, archive.open("wb") as f:
+            shutil.copyfileobj(resp, f)
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ssl.SSLCertVerificationError):
+            raise RuntimeError(
+                "TinyTeX download failed due to SSL certificate verification. "
+                "Try one of: (1) run '/Applications/Python 3.11/Install Certificates.command' on macOS, "
+                "(2) install certifi via 'python3 -m pip install -U certifi', "
+                "(3) export SSL_CERT_FILE to certifi.where(), or "
+                "(4) install TinyTeX/TeX Live manually and ensure 'pdflatex' is in PATH."
+            ) from exc
+        raise RuntimeError(
+            f"TinyTeX download failed from {url}. Please check network/proxy settings or install TinyTeX manually."
+        ) from exc
+
+
+def _extract_missing_sty(log_text: str) -> Optional[str]:
+    """Extract missing .sty package name from pdflatex output."""
+    m = re.search(r"LaTeX Error: File `([^`]+)\.sty' not found\.", log_text)
+    if not m:
+        return None
+    return m.group(1).strip()
+
+
+def _sty_to_tlmgr_package(sty_name: str) -> Optional[str]:
+    """Map .sty filename to tlmgr package name."""
+    mapping = {
+        "pifont": "psnfss",
+        "graphicx": "graphics",
+    }
+    if sty_name in mapping:
+        return mapping[sty_name]
+    return sty_name
+
+
+def _find_tlmgr() -> Optional[str]:
+    """Find tlmgr command from PATH or pubtab-managed TinyTeX."""
+    tlmgr = shutil.which("tlmgr")
+    if tlmgr:
+        return tlmgr
+    bin_dir = _get_tinytex_bin_dir()
+    if bin_dir and (bin_dir / "tlmgr").exists():
+        return str(bin_dir / "tlmgr")
+    return None
+
+
+def _tlmgr_install_package(package: str) -> None:
+    """Install a TeX Live package via tlmgr."""
+    tlmgr = _find_tlmgr()
+    if not tlmgr:
+        raise RuntimeError(
+            f"Missing LaTeX package '{package}', but tlmgr is not available. "
+            "Please install it manually or install a full TeX distribution."
+        )
+    subprocess.run([tlmgr, "install", package], check=True, capture_output=True)
+
+
 def _install_tinytex() -> str:
     """Download and install TinyTeX into ~/.pubtab/TinyTeX.
 
@@ -76,7 +150,7 @@ def _install_tinytex() -> str:
     # Download
     logger.info("Downloading TinyTeX (this only happens once)...")
     print("pubtab: Downloading TinyTeX (~90MB, one-time setup)...", file=sys.stderr)
-    urllib.request.urlretrieve(url, archive)
+    _download_archive(url, archive)
 
     # Extract
     print("pubtab: Extracting TinyTeX...", file=sys.stderr)
@@ -193,21 +267,38 @@ def compile_pdf(
     doc = _build_standalone(tex_content, theme, preamble=preamble)
     output = Path(output)
 
+    installed_in_run = set()
+    max_retries = 2
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tex_path = Path(tmpdir) / "table.tex"
         tex_path.write_text(doc)
 
-        result = subprocess.run(
-            [pdflatex, "-interaction=nonstopmode", "-output-directory", tmpdir, str(tex_path)],
-            capture_output=True,
-        )
-        pdf_path = Path(tmpdir) / "table.pdf"
-        if not pdf_path.exists():
+        for _ in range(max_retries + 1):
+            result = subprocess.run(
+                [pdflatex, "-interaction=nonstopmode", "-output-directory", tmpdir, str(tex_path)],
+                capture_output=True,
+            )
+            pdf_path = Path(tmpdir) / "table.pdf"
+            if pdf_path.exists():
+                shutil.copy2(pdf_path, output)
+                return output
+
             out = result.stdout.decode("utf-8", errors="replace")
             err = result.stderr.decode("utf-8", errors="replace")
-            raise RuntimeError(f"pdflatex failed:\n{out}\n{err}")
+            log_text = f"{out}\n{err}"
+            missing_sty = _extract_missing_sty(log_text)
+            pkg = _sty_to_tlmgr_package(missing_sty) if missing_sty else None
 
-        shutil.copy2(pdf_path, output)
+            if not pkg or pkg in installed_in_run:
+                raise RuntimeError(f"pdflatex failed:\n{out}\n{err}")
+
+            print(
+                f"pubtab: Missing LaTeX package '{missing_sty}'. Auto-installing '{pkg}'...",
+                file=sys.stderr,
+            )
+            _tlmgr_install_package(pkg)
+            installed_in_run.add(pkg)
     return output
 
 
