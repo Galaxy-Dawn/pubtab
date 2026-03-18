@@ -10,6 +10,8 @@ from .utils import _latex_color_to_hex
 
 # Module-level custom color registry (populated by read_tex per call)
 _custom_colors: Dict[str, str] = {}
+_SUPPORTED_TABLE_ENVS = ("tabular", "tblr", "longtblr", "talltblr")
+_EXPLICIT_SPANCELL_ENVS = {"tblr", "longtblr", "talltblr"}
 
 
 def _normalize_color(raw: str, spec: str = "") -> str | None:
@@ -79,6 +81,65 @@ def _cell_has_payload(cell: Cell) -> bool:
     if cell.style.diagbox:
         return True
     return False
+
+
+def _is_plain_placeholder_cell(cell: Cell) -> bool:
+    """Return True for empty placeholder cells with no semantic/style payload."""
+    return (
+        not _cell_has_payload(cell)
+        and cell.rowspan == 1
+        and cell.colspan == 1
+        and cell.style == CellStyle()
+    )
+
+
+def _collapse_generated_negative_multirow_placeholders(
+    rows: List[List[Cell]],
+) -> List[List[Cell]]:
+    """Drop pubtab-generated blank placeholders consumed by negative multirow spans.
+
+    Classic pubtab tabular output represents upper-left merged headers as a
+    negative `\\multirow` wrapped around a `\\multicolumn`, followed by
+    `colspan-1` empty cells in the same source row. Those empties are only
+    placeholders for the multicolumn span and should not survive as real
+    columns in tex->xlsx roundtrip.
+    """
+    normalized: List[List[Cell]] = []
+    for row in rows:
+        new_row: List[Cell] = []
+        idx = 0
+        while idx < len(row):
+            cell = row[idx]
+            new_row.append(cell)
+            idx += 1
+            if cell.rowspan >= 0 or cell.colspan <= 1:
+                continue
+            placeholders_to_drop = cell.colspan - 1
+            while (
+                placeholders_to_drop > 0
+                and idx < len(row)
+                and _is_plain_placeholder_cell(row[idx])
+            ):
+                idx += 1
+                placeholders_to_drop -= 1
+        normalized.append(new_row)
+    return normalized
+
+
+def _shift_row_segment_right(
+    row: List[Cell],
+    start_idx: int,
+    shift: int,
+) -> List[Cell]:
+    """Shift a row segment right within the existing row width."""
+    if shift <= 0 or start_idx >= len(row):
+        return row
+    shifted = list(row)
+    for idx in range(len(row) - 1, start_idx + shift - 1, -1):
+        shifted[idx] = row[idx - shift]
+    for idx in range(start_idx, min(start_idx + shift, len(row))):
+        shifted[idx] = Cell(value="", style=CellStyle())
+    return shifted
 
 
 def _trim_all_empty_cols(rows: List[List[Cell]], num_cols: int) -> int:
@@ -246,11 +307,45 @@ def _merge_visual_multirow(rows: List[List[Cell]], header_rows: int, hline_befor
                 rows[clear_r][0] = Cell(value="", style=CellStyle())
 
 
+def _cap_vertical_spans(rows: List[List[Cell]]) -> None:
+    """Clamp rowspans so they do not cross explicit row content or rule boundaries."""
+    if not rows:
+        return
+
+    num_rows = len(rows)
+    num_cols = max((len(row) for row in rows), default=0)
+    for r in range(num_rows):
+        for c in range(min(len(rows[r]), num_cols)):
+            cell = rows[r][c]
+            if cell.rowspan <= 1:
+                continue
+
+            capped = min(cell.rowspan, num_rows - r)
+            for dr in range(1, capped):
+                rr = r + dr
+                if rr >= num_rows:
+                    capped = dr
+                    break
+                if c < len(rows[rr]) and _cell_has_payload(rows[rr][c]):
+                    capped = dr
+                    break
+
+            if capped != cell.rowspan:
+                rows[r][c] = Cell(
+                    value=cell.value,
+                    style=cell.style,
+                    rowspan=max(1, capped),
+                    colspan=cell.colspan,
+                    rich_segments=cell.rich_segments,
+                )
+
+
 def read_tex(
     tex: str,
     newcommands: Optional[Dict[str, Tuple[int, str]]] = None,
     definecolors: Optional[Dict[str, str]] = None,
     rowcolors: Optional[Tuple[int, str, str]] = None,
+    generated_by_pubtab: bool = False,
 ) -> TableData:
     """Parse a LaTeX table string into TableData.
 
@@ -276,10 +371,11 @@ def read_tex(
         r"\\\\",
         tex,
     )
+    explicit_spancells = _uses_explicit_spancells(tex)
     # Extract tabular body
     body = _extract_tabular_body(tex)
     if body is None:
-        raise ValueError("No tabular environment found")
+        raise ValueError("No supported table environment found")
 
     # Strip \iffalse...\fi blocks before row splitting (they can span multiple rows)
     body = re.sub(r"\\iffalse\b.*?\\fi\b\s*", "", body, flags=re.DOTALL)
@@ -344,17 +440,17 @@ def read_tex(
     if not parsed_rows:
         raise ValueError("No data rows found")
 
-    num_cols = max(
-        sum(c.colspan for c in row) for row in parsed_rows
-    )
+    if generated_by_pubtab and not explicit_spancells:
+        parsed_rows = _collapse_generated_negative_multirow_placeholders(parsed_rows)
 
-    # Expand rows to full width with placeholder cells
-    expanded = []
-    parsed_cell_counts = []  # original cell count per row (before expansion)
-    for row in parsed_rows:
-        parsed_cell_counts.append(len(row))
-        full_row = _expand_row(row, num_cols)
-        expanded.append(full_row)
+    parsed_cell_counts = [len(row) for row in parsed_rows]
+    if explicit_spancells:
+        expanded = [_expand_tblr_row(row) for row in parsed_rows]
+        num_cols = max(len(row) for row in expanded)
+        expanded = [_pad_row(row, num_cols) for row in expanded]
+    else:
+        num_cols = max(sum(c.colspan for c in row) for row in parsed_rows)
+        expanded = [_expand_row(row, num_cols) for row in parsed_rows]
 
     # Handle negative multirow: move content from bottom to top of merged range
     for r, row in enumerate(expanded):
@@ -363,11 +459,52 @@ def read_tex(
                 span = abs(cell.rowspan)
                 target_r = r - span + 1
                 if target_r >= 0:
-                    expanded[target_r][c] = Cell(
-                        value=cell.value, style=cell.style,
-                        rowspan=span, colspan=cell.colspan,
-                    )
+                    if explicit_spancells:
+                        target_row = list(expanded[target_r])
+                        required_gap = max(0, cell.colspan - 1)
+                        existing_gap = 0
+                        while (
+                            existing_gap < required_gap
+                            and (c + 1 + existing_gap) < len(target_row)
+                        ):
+                            neighbor = target_row[c + 1 + existing_gap]
+                            is_empty_placeholder = (
+                                not _cell_has_payload(neighbor)
+                                and neighbor.rowspan == 1
+                                and neighbor.colspan == 1
+                                and neighbor.style == CellStyle()
+                            )
+                            if not is_empty_placeholder:
+                                break
+                            existing_gap += 1
+                        for _ in range(required_gap - existing_gap):
+                            target_row.insert(c + 1, Cell(value="", style=CellStyle()))
+
+                        target_row[c] = Cell(
+                            value=cell.value, style=cell.style,
+                            rowspan=span, colspan=cell.colspan,
+                        )
+                        expanded[target_r] = target_row
+                    else:
+                        if generated_by_pubtab and cell.colspan > 1:
+                            overlap = expanded[target_r][
+                                c + 1:min(len(expanded[target_r]), c + cell.colspan)
+                            ]
+                            if any(not _is_plain_placeholder_cell(item) for item in overlap):
+                                expanded[target_r] = _shift_row_segment_right(
+                                    expanded[target_r],
+                                    c + 1,
+                                    cell.colspan - 1,
+                                )
+                        expanded[target_r][c] = Cell(
+                            value=cell.value, style=cell.style,
+                            rowspan=span, colspan=cell.colspan,
+                        )
                     expanded[r][c] = Cell(value="", style=CellStyle())
+
+    if explicit_spancells:
+        num_cols = max(len(row) for row in expanded)
+        expanded = [_pad_row(row, num_cols) for row in expanded]
 
     # Apply \rowcolors alternating background to rows without explicit bg_color
     if rowcolors:
@@ -399,7 +536,7 @@ def read_tex(
     header_rows = _detect_header_rows(expanded, num_cols)
 
     # Auto-merge empty header cells with content cells below
-    if header_rows > 1 and len(expanded) >= header_rows:
+    if header_rows > 1 and len(expanded) >= header_rows and not generated_by_pubtab:
         # Track positions covered by multicolumn/multirow in row 0
         covered = set()
         for c, cell in enumerate(expanded[0]):
@@ -420,12 +557,19 @@ def read_tex(
                         rowspan=header_rows, colspan=below.colspan,
                     )
                     expanded[1][c] = Cell(value="", style=CellStyle())
-                elif below.value in ("", None) and below.colspan == 1:
-                    # Both empty — merge for clean header
+
+                elif not explicit_spancells and below.value in ("", None) and below.colspan == 1:
+                    # Both empty — merge for clean header in classic tabular.
                     expanded[0][c] = Cell(
                         value="", style=top.style,
                         rowspan=header_rows, colspan=1,
                     )
+
+    # Trim trailing empty columns before promoting single-cell section rows to full width.
+    # Otherwise phantom header padding can make section banners span a non-existent column
+    # in one backend but not the other.
+    if explicit_spancells:
+        num_cols = _trim_all_empty_cols(expanded, num_cols)
 
     # Expand section header rows (string content in first cell, rest empty) to full width
     # Only if the row was parsed as a single cell (no & separators) — rows with multiple
@@ -445,6 +589,8 @@ def read_tex(
     # Merge visual multirow patterns in first column (e.g., topology labels spanning multiple rows)
     # Detect groups of consecutive rows with same bg_color in column A, with one label in the group
     _merge_visual_multirow(expanded, header_rows, hline_before)
+    if explicit_spancells:
+        _cap_vertical_spans(expanded)
 
     # Trim globally empty columns (e.g., empty separator columns from malformed input)
     num_cols = _trim_all_empty_cols(expanded, num_cols)
@@ -471,6 +617,7 @@ def read_tex_multi(
         List of TableData, one per tabular environment found.
     """
     stripped = _strip_comments(tex)
+    generated_by_pubtab = "Theme package hints for this table" in tex
 
     # Parse shared newcommands from the full file
     cmds = _parse_newcommands(stripped)
@@ -483,7 +630,7 @@ def read_tex_multi(
     # Extract all complete tabular blocks with positions from expanded tex
     all_blocks = _extract_all_tabular_blocks(expanded_tex)
     if not all_blocks:
-        raise ValueError("No tabular environment found")
+        raise ValueError("No supported table environment found")
 
     expanded_stripped = _strip_comments(expanded_tex)
     tables: List[TableData] = []
@@ -500,13 +647,14 @@ def read_tex_multi(
                 newcommands={},  # already expanded
                 definecolors=block_colors,
                 rowcolors=block_rowcolors,
+                generated_by_pubtab=generated_by_pubtab,
             )
             tables.append(table)
         except (ValueError, IndexError):
             continue  # skip unparseable tables
 
     if not tables:
-        raise ValueError("No parseable tabular environments found")
+        raise ValueError("No parseable supported table environments found")
     return tables
 
 
@@ -636,32 +784,37 @@ def _strip_newcommand_defs(tex: str) -> str:
     )
 
 
-def _extract_tabular_body(tex: str) -> Optional[str]:
-    """Extract content between \\begin{tabular} and \\end{tabular}.
+def _extract_table_blocks(
+    tex: str,
+    *,
+    strip_newcommand_defs: bool,
+) -> List[Tuple[str, str, int]]:
+    """Extract supported table environment blocks.
 
-    When a file contains multiple tabular environments (e.g. two side-by-side
-    tables), returns the body of the *largest* one (by character length) so
-    that the most-content-rich table is chosen rather than always the first.
+    Returns:
+        List of (env_name, full_block, start_position) tuples.
     """
     tex = _strip_comments(tex)
-    # Strip \newcommand definitions so we don't pick up \begin{tabular} inside
-    # command bodies (e.g. \specialcell uses \begin{tabular} internally)
-    tex = _strip_newcommand_defs(tex)
-
-    begin_tag = "\\begin{tabular}"
-    end_tag = "\\end{tabular}"
-    bodies: List[str] = []
+    if strip_newcommand_defs:
+        # Strip \newcommand definitions so we don't pick up \begin{tabular} inside
+        # command bodies (e.g. \specialcell uses \begin{tabular} internally)
+        tex = _strip_newcommand_defs(tex)
+    pattern = re.compile(
+        rf"\\begin\{{({'|'.join(_SUPPORTED_TABLE_ENVS)})\}}(?:\[[^\]]*\])?(?:\{{({_NESTED})\}})?",
+        re.DOTALL,
+    )
+    results: List[Tuple[str, str, int]] = []
 
     search_from = 0
     while True:
-        m = re.search(
-            rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
-            tex[search_from:], re.DOTALL,
-        )
+        m = pattern.search(tex, search_from)
         if not m:
             break
-        abs_start = search_from + m.end()
-        # Walk forward counting nested \begin{tabular}/\end{tabular}
+        env_name = m.group(1)
+        begin_tag = f"\\begin{{{env_name}}}"
+        end_tag = f"\\end{{{env_name}}}"
+        block_start = m.start()
+        abs_start = m.end()
         depth = 1
         pos = abs_start
         while pos < len(tex) and depth > 0:
@@ -675,16 +828,44 @@ def _extract_tabular_body(tex: str) -> Optional[str]:
             else:
                 depth -= 1
                 if depth == 0:
-                    bodies.append(tex[abs_start:ei].strip())
-                    search_from = ei + len(end_tag)
+                    block_end = ei + len(end_tag)
+                    results.append((env_name, tex[block_start:block_end], block_start))
+                    search_from = block_end
                     break
                 pos = ei + len(end_tag)
         else:
             break
 
+    return results
+
+
+def _extract_tabular_body(tex: str) -> Optional[str]:
+    """Extract the body of the largest supported table environment."""
+    bodies = []
+    for _, block, _ in _extract_table_blocks(tex, strip_newcommand_defs=True):
+        start = block.find("}") + 1
+        body = block[start:]
+        if body.startswith("["):
+            opt_end = body.find("]")
+            if opt_end != -1:
+                body = body[opt_end + 1:]
+        if body.startswith("{"):
+            depth = 0
+            for idx, ch in enumerate(body):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        body = body[idx + 1:]
+                        break
+        end_match = re.search(r"\\end\{(?:tabular|tblr|longtblr|talltblr)\}\s*$", body)
+        if end_match:
+            body = body[:end_match.start()]
+        bodies.append(body.strip())
+
     if not bodies:
         return None
-    # Return the largest body — for multi-table files this picks the main table
     return max(bodies, key=len)
 
 
@@ -696,47 +877,10 @@ def _extract_all_tabular_blocks(tex: str) -> List[Tuple[str, int]]:
         the \\begin{tabular}{...}...\\end{tabular} tags so it can be passed
         directly to read_tex().
     """
-    # Only strip comments, NOT newcommand defs, to preserve positions.
-    # When called from read_tex_multi, the input is already expanded so
-    # newcommand defs don't need to be stripped for finding tabular blocks.
-    tex_clean = _strip_comments(tex)
-
-    begin_tag = "\\begin{tabular}"
-    end_tag = "\\end{tabular}"
-    results: List[Tuple[str, int]] = []
-
-    search_from = 0
-    while True:
-        m = re.search(
-            rf"\\begin\{{tabular\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}",
-            tex_clean[search_from:], re.DOTALL,
-        )
-        if not m:
-            break
-        block_start = search_from + m.start()
-        abs_start = search_from + m.end()
-        depth = 1
-        pos = abs_start
-        while pos < len(tex_clean) and depth > 0:
-            bi = tex_clean.find(begin_tag, pos)
-            ei = tex_clean.find(end_tag, pos)
-            if ei == -1:
-                break
-            if bi != -1 and bi < ei:
-                depth += 1
-                pos = bi + len(begin_tag)
-            else:
-                depth -= 1
-                if depth == 0:
-                    block_end = ei + len(end_tag)
-                    results.append((tex_clean[block_start:block_end], block_start))
-                    search_from = block_end
-                    break
-                pos = ei + len(end_tag)
-        else:
-            break
-
-    return results
+    return [
+        (block, start)
+        for _, block, start in _extract_table_blocks(tex, strip_newcommand_defs=False)
+    ]
 
 
 def _split_rows(body: str) -> List[str]:
@@ -762,6 +906,7 @@ def _split_rows_with_hline(body: str) -> List[Tuple[str, bool]]:
                 r"addlinespace(?:\[[^\]]*\])?|toprule|midrule|bottomrule(?:\[[^\]]*\])?|"
                 r"specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}|"
                 r"cmidrule(?:\([^)]*\))?\{[^}]*\}|"
+                r"SetHline(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}|"
                 r"cline(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}|"
                 r"cdashline(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}|"
                 r"cdashlinelr\{[^}]*\})",
@@ -777,6 +922,7 @@ def _split_rows_with_hline(body: str) -> List[Tuple[str, bool]]:
         # Remove \specialrule{width}{space_above}{space_below}
         s = re.sub(r"\\specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cmidrule(\([^)]*\))?\{[^}]*\}\s*", "", s)
+        s = re.sub(r"\\SetHline(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cline(\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cdashline(\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", s)
         s = re.sub(r"\\cdashlinelr\{[^}]*\}\s*", "", s)
@@ -837,6 +983,64 @@ _MULTIROW_RE = re.compile(
 _MULTIROWCELL_RE = re.compile(
     rf"\\multirowcell\{{(-?[\d.]+)\}}(?:\[[^\]]*\])?\{{({_NESTED})\}}"
 )
+_SETCELL_RE = re.compile(
+    rf"\\SetCell(?:\[([^\]]*)\])?\{{({_NESTED})\}}"
+)
+_TEXTCOLOR_RE = re.compile(
+    rf"\\textcolor(\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}"
+)
+
+
+def _resolve_alignment_spec(spec: str) -> str:
+    """Collapse a LaTeX column/alignment spec to left/center/right."""
+    match = re.search(r"(?<![A-Za-z])([lcr])(?![A-Za-z])", spec)
+    if match:
+        return {"l": "left", "c": "center", "r": "right"}[match.group(1)]
+
+    # Fallback for specs like p{...}/m{...}/b{...}; treat as left-aligned text columns.
+    match = re.search(r"([pmb])\s*\{", spec)
+    if match:
+        return "left"
+
+    return "center"
+
+
+def _extract_multicolumn(
+    text: str,
+    *,
+    colspan: int,
+    alignment: str,
+    bg_color: Optional[str],
+) -> tuple[str, int, str, Optional[str]]:
+    """Extract nested \\multicolumn wrappers and preserve columncolor/alignment."""
+    current_colspan = colspan
+    current = text
+    while True:
+        match = _MULTICOLUMN_RE.match(current)
+        if not match:
+            break
+
+        current_colspan = max(1, int(match.group(1)))
+        align_spec = match.group(2).strip()
+        alignment = _resolve_alignment_spec(align_spec)
+
+        columncolor_match = re.search(r"\\columncolor(\[[^\]]*\])?\{([^}]*)\}", align_spec)
+        if columncolor_match and not bg_color:
+            bg_color = _normalize_color(columncolor_match.group(2), columncolor_match.group(1) or "")
+
+        current = match.group(3).strip()
+
+        # Re-extract cellcolor from inside multicolumn content
+        for _ in range(3):
+            inner = re.search(rf"\\cellcolor(\[[^\]]*\])?\{{([^}}]+)\}}(?:\{{({_NESTED})\}})?", current)
+            if not inner:
+                break
+            if not bg_color:
+                bg_color = _normalize_color(inner.group(2), inner.group(1) or "")
+            replacement = inner.group(3) if inner.group(3) else ""
+            current = (current[:inner.start()] + replacement + current[inner.end():]).strip()
+
+    return current, current_colspan, alignment, bg_color
 
 
 def _parse_row(row_str: str) -> Optional[List[Cell]]:
@@ -846,6 +1050,15 @@ def _parse_row(row_str: str) -> Optional[List[Cell]]:
     m = re.search(r"\\rowcolor(\[[^\]]*\])?\{([^}]*)\}", row_str)
     if m:
         row_bg = _normalize_color(m.group(2), m.group(1) or "")
+        row_str = (row_str[:m.start()] + row_str[m.end():]).strip()
+
+    m = re.search(r"\\SetRow\{([^}]*)\}", row_str)
+    if m:
+        setrow_spec = m.group(1)
+        bg_match = re.search(r"(?:^|,)\s*bg\s*=\s*([^,}]+)", setrow_spec)
+        bg_value = bg_match.group(1).strip() if bg_match else setrow_spec.strip()
+        if bg_value:
+            row_bg = _normalize_color(bg_value)
         row_str = (row_str[:m.start()] + row_str[m.end():]).strip()
 
     # Extract custom row color commands: \grow{...} or \grow ... → gray, \brow{...} or \brow ... → lightblue
@@ -961,6 +1174,33 @@ def _parse_cell(text: str) -> Cell:
     text_color = None
     rotation = 0
 
+    m = _SETCELL_RE.match(text)
+    if m:
+        options = m.group(1) or ""
+        styles = m.group(2) or ""
+        for token in (part.strip() for part in options.split(",")):
+            if token.startswith("r="):
+                try:
+                    rowspan = max(1, int(token.split("=", 1)[1]))
+                except ValueError:
+                    pass
+            elif token.startswith("c="):
+                try:
+                    colspan = max(1, int(token.split("=", 1)[1]))
+                except ValueError:
+                    pass
+        bg_match = re.search(r"(?:^|,)\s*bg\s*=\s*([^,}]+)", styles)
+        if bg_match:
+            bg_color = _normalize_color(bg_match.group(1).strip())
+        align_match = re.search(r"\b([lcr])\b", styles) or re.search(r"\b([lcr])\b", options)
+        # Keep simple one-cell SetCell background blocks aligned with the legacy
+        # tabular backend: tabular only preserves per-cell l/r alignment when it
+        # is encoded as part of a span wrapper, while plain background cells fall
+        # back to the column default (usually centered) after roundtrip.
+        if align_match and (rowspan > 1 or colspan > 1):
+            alignment = {"l": "left", "c": "center", "r": "right"}[align_match.group(1)]
+        text = text[m.end():].strip()
+
     # Extract colors FIRST (before multirow/multicolumn which use .match())
     for _ in range(3):  # handle multiple color commands
         m = re.search(rf"\\cellcolor(\[[^\]]*\])?\{{([^}}]+)\}}(?:\{{({_NESTED})\}})?", text)
@@ -986,39 +1226,37 @@ def _parse_cell(text: str) -> Cell:
     # Strip leading font commands that block .match() for multirow/multicolumn
     text = re.sub(r"^\\(bf|it|rm|tt|sc|bfseries|itshape|rmfamily|ttfamily|scshape|boldmath|bm)\b\s*", "", text).strip()
 
-    # Extract multicolumn (handle nested: outer alignment wins)
-    m = _MULTICOLUMN_RE.match(text)
-    if m:
-        colspan = int(m.group(1))
-        alignment = m.group(2).strip()
-        text = m.group(3).strip()
-        # If inner content is also a \multicolumn, extract it (keep outer alignment)
-        m2 = _MULTICOLUMN_RE.match(text)
-        if m2:
-            text = m2.group(3).strip()
-        # Re-extract cellcolor from inside multicolumn content
-        for _ in range(3):
-            m2 = re.search(rf"\\cellcolor(\[[^\]]*\])?\{{([^}}]+)\}}(?:\{{({_NESTED})\}})?", text)
-            if m2:
-                if not bg_color:
-                    bg_color = _normalize_color(m2.group(2), m2.group(1) or "")
-                # If content is in group(3), replace entire match with content
-                replacement = m2.group(3) if m2.group(3) else ""
-                text = (text[:m2.start()] + replacement + text[m2.end():]).strip()
-                continue
-            break
+    # Extract multicolumn (including nested multirow{...}{multicolumn{...}{...}{...}} cases).
+    text, colspan, alignment, bg_color = _extract_multicolumn(
+        text,
+        colspan=colspan,
+        alignment=alignment,
+        bg_color=bg_color,
+    )
 
     # Extract multirowcell (makecell package: \multirowcell{N}{content})
     m = _MULTIROWCELL_RE.match(text)
     if m:
         rowspan = round(float(m.group(1)))
         text = m.group(2).strip()
+        text, colspan, alignment, bg_color = _extract_multicolumn(
+            text,
+            colspan=colspan,
+            alignment=alignment,
+            bg_color=bg_color,
+        )
 
     # Extract multirow
     m = _MULTIROW_RE.match(text)
     if m:
         rowspan = round(float(m.group(1)))
         text = m.group(2).strip()
+        text, colspan, alignment, bg_color = _extract_multicolumn(
+            text,
+            colspan=colspan,
+            alignment=alignment,
+            bg_color=bg_color,
+        )
 
     # Strip \makebox BEFORE color conversion so {\color{...} content} inside \makebox
     # doesn't split the text before \makebox can be removed (e.g. \compareyes expansion)
@@ -1038,7 +1276,6 @@ def _parse_cell(text: str) -> Cell:
         lambda m: f"\\textcolor{m.group(1) or ''}{{{m.group(2)}}}{{{m.group(3).strip()}}}",
         text,
     )
-
     # Extract \fcolorbox{frame}{bg}{content} and \colorbox{color}{content}
     # Must happen BEFORE rich_segments detection so the color name doesn't leak
     # into plain-text prefixes when _clean_latex is called on partial text.
@@ -1084,7 +1321,7 @@ def _parse_cell(text: str) -> Cell:
     )
 
     # Detect multiple \textcolor → rich text segments
-    _tc_matches = list(re.finditer(rf"\\textcolor(?:\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text))
+    _tc_matches = list(_TEXTCOLOR_RE.finditer(text))
     rich_segments = None
     if len(_tc_matches) >= 1:
         segs = []
@@ -1099,8 +1336,8 @@ def _parse_cell(text: str) -> Cell:
                     plain += " "
                 if plain:
                     segs.append((plain, None, _pb, _pi, _pu))
-            color = _normalize_color(_m.group(1))
-            sb, si, su, _, content = _parse_formatting(_m.group(2))
+            color = _normalize_color(_m.group(2), _m.group(1) or "")
+            sb, si, su, _, content = _parse_formatting(_m.group(3))
             content = content.strip()
             if content:
                 segs.append((content, color, sb, si, su))
@@ -1147,7 +1384,7 @@ def _parse_cell(text: str) -> Cell:
         # Custom color - let it be extracted normally (color will be lost, but output will be valid)
     # Extract \textcolor{color}{content}
     for _ in range(10):
-        m = re.search(rf"\\textcolor(\[[^\]]*\])?\{{({_NESTED})\}}\{{({_NESTED})\}}", text)
+        m = _TEXTCOLOR_RE.search(text)
         if not m:
             break
         if not text_color:
@@ -1396,11 +1633,11 @@ def _parse_formatting(text: str) -> Tuple[bool, bool, bool, Optional[List[str]],
     if "\n" in text:
         _BF_LINE = re.compile(r"\\textbf\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}")
         lines = text.split("\n")
-        if all(_BF_LINE.fullmatch(l.strip()) for l in lines if l.strip()):
+        if all(_BF_LINE.fullmatch(line.strip()) for line in lines if line.strip()):
             bold = True
             text = "\n".join(
-                _BF_LINE.fullmatch(l.strip()).group(1) if l.strip() else l
-                for l in lines
+                _BF_LINE.fullmatch(line.strip()).group(1) if line.strip() else line
+                for line in lines
             )
 
     # Check for diagbox
@@ -1749,7 +1986,10 @@ def _try_parse_number(text: str) -> Optional[float]:
     if '.' in t:
         return None
     try:
-        return float(t)
+        value = float(t)
+        if value != value:
+            return None
+        return value
     except ValueError:
         return None
 
@@ -1766,6 +2006,41 @@ def _expand_row(cells: List[Cell], num_cols: int) -> List[Cell]:
     while len(result) < num_cols:
         result.append(Cell(value="", style=CellStyle()))
     return result[:num_cols]
+
+
+def _pad_row(cells: List[Cell], num_cols: int) -> List[Cell]:
+    """Pad a row to full width with empty placeholders."""
+    result = list(cells)
+    while len(result) < num_cols:
+        result.append(Cell(value="", style=CellStyle()))
+    return result[:num_cols]
+
+
+def _expand_tblr_row(cells: List[Cell]) -> List[Cell]:
+    """Expand a tblr row while tolerating explicit omitted cells after SetCell spans."""
+    result: List[Cell] = []
+    pending_omitted = 0
+    for cell in cells:
+        is_empty_placeholder = (
+            not _cell_has_payload(cell)
+            and cell.rowspan == 1
+            and cell.colspan == 1
+        )
+        if pending_omitted > 0 and is_empty_placeholder:
+            pending_omitted -= 1
+            continue
+
+        pending_omitted = 0
+        result.append(cell)
+        for _ in range(cell.colspan - 1):
+            result.append(Cell(value="", style=CellStyle()))
+        pending_omitted = cell.colspan - 1
+    return result
+
+
+def _uses_explicit_spancells(tex: str) -> bool:
+    """Return True when the table syntax uses explicit omitted span cells."""
+    return any(f"\\begin{{{env}}}" in tex for env in _EXPLICIT_SPANCELL_ENVS)
 
 
 def _detect_header_rows(rows: List[List[Cell]], num_cols: int) -> int:

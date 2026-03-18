@@ -12,6 +12,7 @@ from typing import Callable, Dict, List, Optional, Union
 from .models import Cell, SpacingConfig, TableData
 from .reader import list_excel_sheets, read_excel
 from .renderer import render
+from .themes import resolve_theme
 
 __all__ = ["xlsx2tex", "preview", "compile_pdf", "tex_to_excel", "SpacingConfig"]
 
@@ -76,6 +77,7 @@ def xlsx2tex(
     preamble: Optional[str] = _UNSET,
     dpi: int = _UNSET,
     upright_scripts: bool = _UNSET,
+    latex_backend: str = _UNSET,
     # Deprecated aliases
     wide: bool = _UNSET,
     raw_caption: bool = _UNSET,
@@ -109,6 +111,7 @@ def xlsx2tex(
         preview: Generate PNG preview.
         preamble: Extra LaTeX preamble for preview.
         dpi: Preview resolution.
+        latex_backend: Export backend, either "tabular" or "tabularray".
         wide: Deprecated alias for span_columns.
         raw_caption: Deprecated, ignored.
 
@@ -155,6 +158,7 @@ def xlsx2tex(
                 preamble=preamble,
                 dpi=dpi,
                 upright_scripts=upright_scripts,
+                latex_backend=latex_backend,
                 wide=wide,
                 raw_caption=raw_caption,
             )
@@ -169,7 +173,7 @@ def xlsx2tex(
         font_size=None, resizebox=None, col_spec=None, header_sep=None,
         header_cmidrule=True, span_columns=False, custom_header=None, group_separators=None,
         cell_formatter=None, num_cols=None, preview=False, preamble=None,
-        dpi=300, upright_scripts=False,
+        dpi=300, upright_scripts=False, latex_backend="tabular",
     )
 
     # Load YAML config
@@ -192,6 +196,7 @@ def xlsx2tex(
         group_separators=group_separators,
         cell_formatter=cell_formatter, num_cols=num_cols, preview=preview,
         preamble=preamble, dpi=dpi, upright_scripts=upright_scripts,
+        latex_backend=latex_backend,
     )
     p = {k: (v if v is not _UNSET else defaults[k]) for k, v in explicit.items()}
 
@@ -209,6 +214,7 @@ def xlsx2tex(
 
     for idx, sheet_selector in enumerate(sheet_selectors):
         table = read_excel(input_path, sheet=sheet_selector, header_rows=p["header_rows"])
+        render_theme = resolve_theme(p["theme"], p["latex_backend"])
 
         if p["custom_header"] is not None:
             data_rows = table.cells[table.header_rows:]
@@ -231,7 +237,7 @@ def xlsx2tex(
             )
 
         tex = render(
-            table, theme=p["theme"], caption=p["caption"], label=p["label"],
+            table, theme=render_theme, caption=p["caption"], label=p["label"],
             position=p["position"], spacing=p["spacing"],
             font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
             header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
@@ -246,7 +252,7 @@ def xlsx2tex(
         if p["preview"]:
             from ._preview import preview as _preview
             png_path = output_path.with_suffix(".png")
-            _preview(output_path, output=png_path, theme=p["theme"], dpi=p["dpi"],
+            _preview(output_path, output=png_path, theme=render_theme, dpi=p["dpi"],
                      preamble=p["preamble"])
 
     return tex_outputs[0] if tex_outputs else ""
@@ -330,13 +336,23 @@ def compile_pdf(
     """
     from ._preview import compile_pdf as _compile_pdf
 
-    tex_path = Path(tex_input)
-    if tex_path.exists():
+    tex_candidate = str(tex_input)
+    looks_like_tex_content = (
+        isinstance(tex_input, str)
+        and (
+            "\n" in tex_candidate
+            or "\\begin{" in tex_candidate
+            or len(tex_candidate) > 240
+        )
+    )
+
+    tex_path = None if looks_like_tex_content else Path(tex_input)
+    if tex_path is not None and tex_path.exists():
         tex_content = tex_path.read_text()
         if output is None:
             output = tex_path.with_suffix(".pdf")
     else:
-        tex_content = str(tex_input)
+        tex_content = tex_candidate
         if output is None:
             output = Path("output.pdf")
 

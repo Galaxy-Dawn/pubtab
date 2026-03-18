@@ -18,6 +18,20 @@ def list_themes() -> list[str]:
     return [d.name for d in _THEMES_DIR.iterdir() if d.is_dir() and (d / "config.yaml").exists()]
 
 
+def resolve_theme(name: str, backend: str = "tabular") -> str:
+    """Resolve a user-facing theme/backend pair to an actual theme directory."""
+    if backend == "tabular":
+        return name
+
+    if backend == "tabularray":
+        candidate = f"{name}_tabularray"
+        if (_THEMES_DIR / candidate).exists():
+            return candidate
+        raise ValueError(f"Theme '{name}' does not provide a tabularray backend.")
+
+    raise ValueError(f"Unsupported LaTeX backend: {backend}")
+
+
 def load_theme(name: str) -> tuple[ThemeConfig, str]:
     """Load a theme's config and template.
 
@@ -46,7 +60,9 @@ def load_theme(name: str) -> tuple[ThemeConfig, str]:
     config = ThemeConfig(
         name=raw["name"],
         description=raw.get("description", ""),
+        backend=raw.get("backend", "tabular"),
         packages=raw.get("packages", []),
+        preamble_hints=raw.get("preamble_hints", []),
         column_sep=raw.get("column_sep", "1em"),
         font_size=raw.get("font_size"),
         caption_position=raw.get("caption_position", "top"),

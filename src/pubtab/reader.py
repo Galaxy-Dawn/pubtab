@@ -24,17 +24,45 @@ def _cell_has_payload(cell: Cell) -> bool:
     return False
 
 
-def _trim_trailing_empty_cols(cells: list[list[Cell]], num_cols: int) -> int:
+def _trim_trailing_empty_cols(
+    cells: list[list[Cell]],
+    num_cols: int,
+    structural_explicit_cells: set[tuple[int, int]] | None = None,
+) -> int:
     """Trim only right-side fully empty columns, preserving middle empty columns."""
     if num_cols <= 1 or not cells:
         return num_cols
+    structural_explicit_cells = structural_explicit_cells or set()
+
+    def _rightmost_direct_payload_col() -> int:
+        rightmost = -1
+        for row in cells:
+            for col_idx, cell in enumerate(row[:num_cols]):
+                if _cell_has_payload(cell):
+                    rightmost = max(rightmost, col_idx)
+        return rightmost
 
     def _col_has_payload(col_idx: int) -> bool:
-        # Only consider direct payload in this logical column.
-        # Do not treat spanning masters from the left as payload, otherwise
-        # wide title/header merges can block trailing empty-column trimming.
+        # Prefer direct payload in this logical column.
+        # Additionally preserve a trailing placeholder column when the current
+        # rightmost payload cell starts a merge that reaches this edge.
+        if any((row_idx + 1, col_idx + 1) in structural_explicit_cells for row_idx in range(len(cells))):
+            return True
         for row in cells:
             if col_idx < len(row) and _cell_has_payload(row[col_idx]):
+                return True
+
+        frontier = _rightmost_direct_payload_col()
+        if frontier < 0 or frontier >= col_idx:
+            return False
+
+        for row in cells:
+            if frontier >= len(row):
+                continue
+            cell = row[frontier]
+            if not _cell_has_payload(cell) or cell.colspan <= 1:
+                continue
+            if frontier + cell.colspan - 1 >= col_idx:
                 return True
         return False
 
@@ -94,6 +122,35 @@ def _extract_rich_segments(raw_value) -> Optional[tuple]:
     if not has_formatting or len(segs) < 2:
         return None
     return tuple(segs)
+
+
+def _maybe_diagbox_parts(
+    value: object,
+    row_idx: int,
+    rowspan: int,
+    colspan: int,
+) -> Optional[list[str]]:
+    """Infer diagbox-style header payloads from plain cell text."""
+    if not isinstance(value, str) or " / " not in value or value.count(" / ") != 1:
+        return None
+
+    parts = [part.strip() for part in value.split(" / ", 1)]
+    if len(parts) != 2 or any(not part for part in parts):
+        return None
+    if any(any(ch in part for ch in "#%().") for part in parts):
+        return None
+
+    numeric = all(
+        part.replace(".", "", 1).replace("-", "", 1).lstrip("-").isdigit()
+        or part == "--"
+        for part in parts
+    )
+    if numeric:
+        return None
+
+    if row_idx == 1 or rowspan > 1 or colspan > 1:
+        return parts
+    return None
 
 
 def _excel_fmt_to_python(fmt: str) -> Optional[str]:
@@ -172,6 +229,11 @@ def _read_xlsx(
 
     num_rows = ws.max_row or 0
     num_cols = ws.max_column or 0
+    structural_explicit_cells = {
+        coord
+        for coord, cell_obj in getattr(ws, "_cells", {}).items()
+        if getattr(cell_obj, "style_id", 0) != 0
+    }
     cells: list[list[Cell]] = []
 
     for r in range(1, num_rows + 1):
@@ -199,17 +261,14 @@ def _read_xlsx(
             else:
                 value = raw_value if raw_value is not None else ""
 
-            # Auto-detect diagbox: "X / Y" pattern — only top-left corner with text labels
-            if isinstance(value, str) and " / " in value and r == 1 and c == 1:
-                parts = value.split(" / ", 1)
-                _numeric = all(p.strip().replace('.','',1).replace('-','',1).lstrip('-').isdigit() or p.strip() == '--' for p in parts)
-                if not _numeric:
-                    style = CellStyle(
-                        bold=style.bold, italic=style.italic, underline=style.underline,
-                        color=style.color, bg_color=style.bg_color, alignment=style.alignment,
-                        fmt=style.fmt, diagbox=parts, rotation=style.rotation,
-                    )
-                    value = ""
+            diagbox_parts = _maybe_diagbox_parts(value, r, rowspan, colspan)
+            if diagbox_parts:
+                style = CellStyle(
+                    bold=style.bold, italic=style.italic, underline=style.underline,
+                    color=style.color, bg_color=style.bg_color, alignment=style.alignment,
+                    fmt=style.fmt, diagbox=diagbox_parts, rotation=style.rotation,
+                )
+                value = ""
 
             # Auto-detect raw LaTeX: if cell value contains \command patterns,
             # mark as raw_latex so the renderer passes it through unescaped
@@ -225,10 +284,14 @@ def _read_xlsx(
         cells.append(row_cells)
 
     # Strip trailing empty rows
-    while len(cells) > 1 and all(not c.value and c.value != 0 for c in cells[-1]):
+    while (
+        len(cells) > 1
+        and all(not c.value and c.value != 0 for c in cells[-1])
+        and not any((len(cells), col_idx + 1) in structural_explicit_cells for col_idx in range(num_cols))
+    ):
         cells.pop()
     num_rows = len(cells)
-    num_cols = _trim_trailing_empty_cols(cells, num_cols)
+    num_cols = _trim_trailing_empty_cols(cells, num_cols, structural_explicit_cells)
 
     if header_rows is None:
         header_rows = max((c.rowspan for c in cells[0]), default=1) if cells else 1
@@ -320,6 +383,10 @@ def _read_xls(
 
             xf_idx = ws.cell_xf_index(r, c)
             style = _extract_xls_style(wb, xf_idx)
+            diagbox_parts = _maybe_diagbox_parts(value, r + 1, rowspan, colspan)
+            if diagbox_parts:
+                style = CellStyle(bold=style.bold, italic=style.italic, diagbox=diagbox_parts)
+                value = ""
             row_cells.append(Cell(value=value, style=style, rowspan=rowspan, colspan=colspan))
         cells.append(row_cells)
 

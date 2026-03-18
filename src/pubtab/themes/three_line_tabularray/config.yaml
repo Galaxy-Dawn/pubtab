@@ -1,0 +1,16 @@
+name: three_line_tabularray
+description: Three-line academic table style rendered with tabularray
+backend: tabularray
+packages:
+  - tabularray
+  - xcolor
+  - diagbox
+  - makecell
+  - adjustbox
+  - amssymb
+  - pifont
+preamble_hints:
+  - \UseTblrLibrary{booktabs}
+column_sep: "1em"
+font_size: null
+caption_position: top

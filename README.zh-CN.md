@@ -25,6 +25,12 @@
 - **出版级预览** — 一条命令直接生成 PNG/PDF 结果。
 - **Overleaf 友好输出** — 生成的 `.tex` 顶部自动附带注释版 `\usepackage{...}` 提示。
 
+## News
+
+- **新增 `tabularray` backend** — `xlsx2tex` 现已支持 `--latex-backend tabularray`，可直接输出 `tblr`。
+- **内置主题配对** — 保持 `three_line` 这一用户主题名不变，同时通过 `latex_backend: tabularray` 自动解析到内置 `three_line_tabularray` 后端主题。
+- **预览说明** — 若你要直接预览已有的 tabularray `.tex` 文件，请使用 `pubtab preview ... --theme three_line_tabularray`，以便自动补齐对应的包提示。
+
 ## 示例
 
 ### 精选展示
@@ -88,6 +94,18 @@ pubtab preview ./out/benchmark_sheet01.tex -o ./out/benchmark_sheet01.png --dpi 
 pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet01.pdf
 ```
 
+### 示例 D：Excel -> tabularray (`tblr`)
+
+```bash
+pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark_tblr.tex \
+  --theme three_line \
+  --latex-backend tabularray
+
+# 直接预览一个 tabularray tex 文件
+pubtab preview ./out/benchmark_tblr.tex -o ./out/benchmark_tblr.png \
+  --theme three_line_tabularray --dpi 300
+```
+
 生成的 `.tex` 顶部会包含注释提示（仅提示，不影响编译）：
 
 ```tex
@@ -131,6 +149,14 @@ import pubtab
 # Excel -> LaTeX
 pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line")
 
+# Excel -> tabularray
+pubtab.xlsx2tex(
+    "table.xlsx",
+    output="table_tblr.tex",
+    theme="three_line",
+    latex_backend="tabularray",
+)
+
 # LaTeX -> Excel
 pubtab.tex_to_excel("table.tex", "table.xlsx")
 
@@ -169,6 +195,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--dpi` | 整数 | `300` | 预览 DPI（配合 `--preview`） | 高清输出 |
 | `--header-sep` | 字符串 | 自动 | 自定义表头分隔线 | 自定义线条 |
 | `--upright-scripts` | 开关 | `false` | 上下标使用直立 `\mathrm{}` | 公式排版偏好 |
+| `--latex-backend` | `tabular` / `tabularray` | `tabular` | 选择 LaTeX 导出后端 | 在 `tabular` 与 `tblr` 间切换 |
 
 ### `pubtab tex2xlsx`
 
@@ -199,6 +226,12 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --sheet "Main"
 
 # 双栏表 + 预览
 pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
+
+# 使用 tabularray backend 导出
+pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
+
+# 预览生成后的 tabularray 表格
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
 ```
 
 ## 按工作流理解功能（Features by Workflow）
@@ -231,6 +264,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 
 ```yaml
 theme: three_line
+latex_backend: tabularray
 caption: "Experimental Results"
 label: "tab:results"
 header_rows: 2
@@ -253,9 +287,14 @@ group_separators: [3, 6]
 pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 ```
 
+推荐的 backend 搭配：
+
+- `theme: three_line` + `latex_backend: tabular` -> 经典 `tabular`
+- `theme: three_line` + `latex_backend: tabularray` -> 内置 `three_line_tabularray`
+
 ## 主题系统（Theme System）
 
-pubtab 采用 Jinja2 主题系统。内置 `three_line` 面向学术场景的 booktabs 风格。
+pubtab 采用 Jinja2 主题系统。内置 `three_line` 面向学术场景的 booktabs 风格，`three_line_tabularray` 则是其配套的 `tabularray` 后端版本。
 
 自定义主题目录：
 
@@ -294,7 +333,10 @@ pubtab/
     ├── config.py          # YAML 配置加载
     ├── utils.py           # 转义与颜色工具
     └── themes/
-        └── three_line/
+        ├── three_line/
+        │   ├── config.yaml
+        │   └── template.tex
+        └── three_line_tabularray/
             ├── config.yaml
             └── template.tex
 ```

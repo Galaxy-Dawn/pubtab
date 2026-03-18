@@ -16,12 +16,39 @@ from .models import TableData
 from .utils import _latex_color_to_hex
 
 
+def _reconcile_rich_segments(cell) -> tuple:
+    """Inject unformatted gap segments so rich text reproduces cell.value exactly."""
+    segments = tuple(cell.rich_segments or ())
+    full_text = "" if cell.value is None else str(cell.value)
+    if not segments or not full_text:
+        return segments
+
+    rebuilt: list[tuple] = []
+    cursor = 0
+    for seg in segments:
+        seg_text = seg[0]
+        if not seg_text:
+            continue
+        idx = full_text.find(seg_text, cursor)
+        if idx < 0:
+            return segments
+        if idx > cursor:
+            gap = full_text[cursor:idx]
+            if gap:
+                rebuilt.append((gap, None, False, False, False))
+        rebuilt.append(seg)
+        cursor = idx + len(seg_text)
+
+    if cursor < len(full_text):
+        rebuilt.append((full_text[cursor:], None, False, False, False))
+    return tuple(rebuilt) if rebuilt else segments
+
+
 def _write_sheet(ws, table: TableData) -> None:
     """Write a single TableData to an openpyxl worksheet."""
     merged: set[tuple[int, int]] = set()
 
     for r, row in enumerate(table.cells):
-        col_offset = 0
         for c, cell in enumerate(row):
             excel_row = r + 1
             excel_col = c + 1
@@ -32,10 +59,27 @@ def _write_sheet(ws, table: TableData) -> None:
                 # Cell has content but overlaps a previous merge — remove from merged
                 merged.discard((r, c))
 
+            is_plain_placeholder = (
+                cell.value in ("", None)
+                and not cell.rich_segments
+                and not cell.style.diagbox
+                and cell.rowspan == 1
+                and cell.colspan == 1
+                and not cell.style.bold
+                and not cell.style.italic
+                and not cell.style.underline
+                and not cell.style.color
+                and not cell.style.bg_color
+                and not cell.style.rotation
+            )
+            if is_plain_placeholder:
+                continue
+
             # Determine value
             if cell.rich_segments:
+                rich_segments = _reconcile_rich_segments(cell)
                 rt = CellRichText()
-                for seg in cell.rich_segments:
+                for seg in rich_segments:
                     seg_text, seg_color = seg[0], seg[1]
                     seg_bold = seg[2] if len(seg) > 2 else cell.style.bold
                     seg_italic = seg[3] if len(seg) > 3 else cell.style.italic
