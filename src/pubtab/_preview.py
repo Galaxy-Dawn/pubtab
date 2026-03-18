@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Union
 
-from .themes import load_theme
+from .themes import load_theme, normalize_theme_backend
 
 logger = logging.getLogger(__name__)
 
@@ -250,10 +250,29 @@ def _split_leading_setup(inner: str) -> tuple[str, str]:
     return setup, body
 
 
-def _build_standalone(tex_content: str, theme: str = "three_line",
-                      preamble: Optional[str] = None) -> str:
+def _resolve_preview_theme_backend(
+    tex_content: str,
+    theme: str,
+    latex_backend: Optional[str] = None,
+) -> tuple[str, str]:
+    """Resolve preview theme/backend, inferring tabularray from tblr content."""
+    canonical_theme, resolved_backend = normalize_theme_backend(theme, latex_backend)
+    if latex_backend is None and "\\begin{tblr}" in tex_content:
+        resolved_backend = "tabularray"
+    return canonical_theme, resolved_backend
+
+
+def _build_standalone(
+    tex_content: str,
+    theme: str = "three_line",
+    latex_backend: Optional[str] = None,
+    preamble: Optional[str] = None,
+) -> str:
     """Wrap table LaTeX in a standalone document."""
-    config, _ = load_theme(theme)
+    canonical_theme, resolved_backend = _resolve_preview_theme_backend(
+        tex_content, theme, latex_backend
+    )
+    config, _ = load_theme(canonical_theme, backend=resolved_backend)
     all_pkgs = list(config.packages) + ["caption", "graphicx", "fontenc"]
     pkg_lines = []
     for p in all_pkgs:
@@ -289,6 +308,7 @@ def compile_pdf(
     tex_content: str,
     output: Union[str, Path],
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     preamble: Optional[str] = None,
 ) -> Path:
     """Compile LaTeX content to PDF.
@@ -297,6 +317,7 @@ def compile_pdf(
         tex_content: Raw LaTeX table code.
         output: Output PDF path.
         theme: Theme name (for package imports).
+        latex_backend: Explicit LaTeX backend.
         preamble: Extra LaTeX preamble (e.g. custom commands).
 
     Returns:
@@ -306,9 +327,17 @@ def compile_pdf(
         RuntimeError: If compilation fails.
     """
     pdflatex = ensure_pdflatex()
-    if "tabularray" in theme and "\\begin{tblr}" in tex_content:
+    canonical_theme, resolved_backend = _resolve_preview_theme_backend(
+        tex_content, theme, latex_backend
+    )
+    if resolved_backend == "tabularray" and "\\begin{tblr}" in tex_content:
         tex_content = _sanitize_tblr_for_compile(tex_content)
-    doc = _build_standalone(tex_content, theme, preamble=preamble)
+    doc = _build_standalone(
+        tex_content,
+        canonical_theme,
+        latex_backend=resolved_backend,
+        preamble=preamble,
+    )
     output = Path(output)
 
     installed_in_run = set()
@@ -357,6 +386,7 @@ def preview(
     tex_input: Union[str, Path],
     output: Optional[Union[str, Path]] = None,
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     dpi: int = 300,
     preamble: Optional[str] = None,
 ) -> Path:
@@ -366,6 +396,7 @@ def preview(
         tex_input: LaTeX string or path to .tex file.
         output: Output PNG path. Defaults to input stem + .png.
         theme: Theme name.
+        latex_backend: Explicit LaTeX backend.
         dpi: Resolution for PNG output.
 
     Returns:
@@ -385,7 +416,13 @@ def preview(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         pdf_path = Path(tmpdir) / "table.pdf"
-        compile_pdf(tex_content, pdf_path, theme=theme, preamble=preamble)
+        compile_pdf(
+            tex_content,
+            pdf_path,
+            theme=theme,
+            latex_backend=latex_backend,
+            preamble=preamble,
+        )
         _pdf_to_png(pdf_path, output, dpi=dpi)
 
     return output

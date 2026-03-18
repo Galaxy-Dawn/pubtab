@@ -12,7 +12,6 @@ from typing import Callable, Dict, List, Optional, Union
 from .models import Cell, SpacingConfig, TableData
 from .reader import list_excel_sheets, read_excel
 from .renderer import render
-from .themes import resolve_theme
 
 __all__ = ["xlsx2tex", "preview", "compile_pdf", "tex_to_excel", "SpacingConfig"]
 
@@ -214,7 +213,6 @@ def xlsx2tex(
 
     for idx, sheet_selector in enumerate(sheet_selectors):
         table = read_excel(input_path, sheet=sheet_selector, header_rows=p["header_rows"])
-        render_theme = resolve_theme(p["theme"], p["latex_backend"])
 
         if p["custom_header"] is not None:
             data_rows = table.cells[table.header_rows:]
@@ -237,7 +235,8 @@ def xlsx2tex(
             )
 
         tex = render(
-            table, theme=render_theme, caption=p["caption"], label=p["label"],
+            table, theme=p["theme"], latex_backend=p["latex_backend"],
+            caption=p["caption"], label=p["label"],
             position=p["position"], spacing=p["spacing"],
             font_size=p["font_size"], resizebox=p["resizebox"], col_spec=p["col_spec"],
             header_sep=p["header_sep"], header_cmidrule=p["header_cmidrule"],
@@ -252,8 +251,14 @@ def xlsx2tex(
         if p["preview"]:
             from ._preview import preview as _preview
             png_path = output_path.with_suffix(".png")
-            _preview(output_path, output=png_path, theme=render_theme, dpi=p["dpi"],
-                     preamble=p["preamble"])
+            _preview(
+                output_path,
+                output=png_path,
+                theme=p["theme"],
+                latex_backend=p["latex_backend"],
+                dpi=p["dpi"],
+                preamble=p["preamble"],
+            )
 
     return tex_outputs[0] if tex_outputs else ""
 
@@ -262,6 +267,7 @@ def preview(
     tex_input: Union[str, Path],
     output: Optional[Union[str, Path]] = None,
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     dpi: int = 300,
     preamble: Optional[str] = None,
     format: str = "png",
@@ -273,6 +279,9 @@ def preview(
         output: Output file path or output directory.
             For directory input, defaults to `<tex_input>/preview_<format>/`.
         theme: Theme name.
+        latex_backend: Explicit LaTeX backend for preview document assembly.
+            If omitted, preview will infer `tabularray` from `tblr` content when
+            possible.
         dpi: Resolution (PNG only).
         preamble: Extra LaTeX preamble (e.g. custom commands).
         format: Output format, "png" or "pdf".
@@ -300,10 +309,23 @@ def preview(
         for tex_file in tex_files:
             out_file = output_dir / f"{tex_file.stem}.{format}"
             if format == "pdf":
-                generated = compile_pdf(tex_file, output=out_file, theme=theme, preamble=preamble)
+                generated = compile_pdf(
+                    tex_file,
+                    output=out_file,
+                    theme=theme,
+                    latex_backend=latex_backend,
+                    preamble=preamble,
+                )
             else:
                 from ._preview import preview as _preview
-                generated = _preview(tex_file, output=out_file, theme=theme, dpi=dpi, preamble=preamble)
+                generated = _preview(
+                    tex_file,
+                    output=out_file,
+                    theme=theme,
+                    latex_backend=latex_backend,
+                    dpi=dpi,
+                    preamble=preamble,
+                )
             if first_output is None:
                 first_output = generated
         if first_output is None:
@@ -311,16 +333,30 @@ def preview(
         return first_output
 
     if format == "pdf":
-        return compile_pdf(tex_input, output=output, theme=theme, preamble=preamble)
+        return compile_pdf(
+            tex_input,
+            output=output,
+            theme=theme,
+            latex_backend=latex_backend,
+            preamble=preamble,
+        )
 
     from ._preview import preview as _preview
-    return _preview(tex_input, output=output, theme=theme, dpi=dpi, preamble=preamble)
+    return _preview(
+        tex_input,
+        output=output,
+        theme=theme,
+        latex_backend=latex_backend,
+        dpi=dpi,
+        preamble=preamble,
+    )
 
 
 def compile_pdf(
     tex_input: Union[str, Path],
     output: Optional[Union[str, Path]] = None,
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     preamble: Optional[str] = None,
 ) -> Path:
     """Compile LaTeX content or .tex file to PDF.
@@ -329,6 +365,7 @@ def compile_pdf(
         tex_input: LaTeX string or path to .tex file.
         output: Output PDF path. Defaults to input stem + .pdf.
         theme: Theme name (for package imports).
+        latex_backend: Explicit LaTeX backend for preview document assembly.
         preamble: Extra LaTeX preamble.
 
     Returns:
@@ -356,7 +393,13 @@ def compile_pdf(
         if output is None:
             output = Path("output.pdf")
 
-    return _compile_pdf(tex_content, output, theme=theme, preamble=preamble)
+    return _compile_pdf(
+        tex_content,
+        output,
+        theme=theme,
+        latex_backend=latex_backend,
+        preamble=preamble,
+    )
 
 
 def tex_to_excel(

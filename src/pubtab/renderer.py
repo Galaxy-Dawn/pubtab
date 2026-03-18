@@ -990,6 +990,7 @@ def _section_sep_rule(body_cells: list[list[Cell]], row_idx: int, num_cols: int)
 def render(
     table: TableData,
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     caption: Optional[str] = None,
     label: Optional[str] = None,
     position: str = "htbp",
@@ -1009,6 +1010,8 @@ def render(
     Args:
         table: The table data to render.
         theme: Theme name.
+        latex_backend: Explicit LaTeX backend. If omitted, infer from theme alias
+            or fall back to the theme's default backend.
         caption: Table caption (always passed as-is, no escaping).
         label: LaTeX label.
         position: Table float position.
@@ -1022,7 +1025,7 @@ def render(
     # span_columns takes precedence over deprecated wide
     if span_columns is not None:
         wide = span_columns
-    config, template_str = load_theme(theme)
+    config, template_str = load_theme(theme, backend=latex_backend)
     env = Environment(
         block_start_string="{%",
         block_end_string="%}",
@@ -1291,6 +1294,7 @@ def render_to_file(
     table: TableData,
     output: Union[str, Path],
     theme: str = "three_line",
+    latex_backend: Optional[str] = None,
     caption: Optional[str] = None,
     label: Optional[str] = None,
     position: str = "htbp",
@@ -1308,7 +1312,7 @@ def render_to_file(
     """Render TableData and write to a .tex file."""
     output = Path(output)
     tex = render(
-        table, theme=theme, caption=caption, label=label,
+        table, theme=theme, latex_backend=latex_backend, caption=caption, label=label,
         position=position, spacing=spacing,
         font_size=font_size, resizebox=resizebox, col_spec=col_spec,
         header_sep=header_sep, header_cmidrule=header_cmidrule,

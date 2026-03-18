@@ -245,10 +245,24 @@ def tex2xlsx(input_file: str, output: str) -> None:
 @click.argument("tex_file")
 @click.option("-o", "--output", default=None, help="Output path.")
 @click.option("--theme", default="three_line", help="Theme name.")
+@click.option(
+    "--latex-backend",
+    default=None,
+    type=click.Choice(["tabular", "tabularray"]),
+    help="LaTeX backend used for preview document assembly. Auto-detected from tblr content when omitted.",
+)
 @click.option("--dpi", default=300, type=int, help="PNG resolution.")
 @click.option("--format", "fmt", default="png", type=click.Choice(["png", "pdf"]), help="Output format [default: png].")
 @click.option("--preamble", default=None, help="Extra LaTeX preamble (e.g. custom commands).")
-def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, fmt: str, preamble: str | None) -> None:
+def preview_cmd(
+    tex_file: str,
+    output: str | None,
+    theme: str,
+    latex_backend: str | None,
+    dpi: int,
+    fmt: str,
+    preamble: str | None,
+) -> None:
     """Generate PNG or PDF from a .tex file."""
     from pathlib import Path
 
@@ -261,7 +275,15 @@ def preview_cmd(tex_file: str, output: str | None, theme: str, dpi: int, fmt: st
             param_hint="--output",
         )
 
-    result = pt.preview(tex_file, output=output, theme=theme, dpi=dpi, preamble=preamble, format=fmt)
+    result = pt.preview(
+        tex_file,
+        output=output,
+        theme=theme,
+        latex_backend=latex_backend,
+        dpi=dpi,
+        preamble=preamble,
+        format=fmt,
+    )
     if input_path.is_dir():
         tex_files = sorted(
             [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() == ".tex"],

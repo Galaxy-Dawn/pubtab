@@ -28,7 +28,7 @@
 
 ## Recent News
 
-- **2026-03-18**: `tabularray` backend 支持与 README 刷新 —— 为 `xlsx2tex` 增加 `tabularray` 作为可选 TeX backend，引入内置 `three_line_tabularray` 主题，把 README 中的示例路径替换为仓库真实存在的 `examples/` 样例，补充 GitHub dev 版本安装命令，并将仓库中的 `tests` 目录从跟踪树中移除。
+- **2026-03-18**: `tabularray` backend 支持与 README 刷新 —— 为 `xlsx2tex` 增加 `tabularray` 作为可选 TeX backend，更新 theme/backend 解析逻辑，使 `three_line` 在渲染与预览阶段都能一致使用，把 README 中的示例路径替换为仓库真实存在的 `examples/` 样例，补充 GitHub dev 版本安装命令，并将仓库中的 `tests` 目录从跟踪树中移除。
 - **2026-03-06**: 预览依赖恢复与 resizebox 控制增强 —— 改进 TinyTeX / 缺失宏包自动恢复流程，并补充 `resizebox` 相关 CLI 选项，提升宽表导出的可控性。
 - **2026-03-05**: 面向 PyPI 的 README 清理与发布准备 —— 将 README 链接切换为 PyPI-safe 形式，并完成 1.0.1 发布流程准备。
 
@@ -100,9 +100,9 @@ pubtab xlsx2tex ./examples/table4.xlsx -o ./out/table4_tblr.tex \
   --theme three_line \
   --latex-backend tabularray
 
-# 直接预览一个 tabularray tex 文件
+# 预览生成后的 tabularray tex 文件
 pubtab preview ./out/table4_tblr.tex -o ./out/table4_tblr.png \
-  --theme three_line_tabularray --dpi 300
+  --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 生成的 `.tex` 顶部会包含注释提示（仅提示，不影响编译）：
@@ -236,7 +236,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
 
 # 预览生成后的 tabularray 表格
-pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 ## 按工作流理解功能（Features by Workflow）
@@ -295,11 +295,11 @@ pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 推荐的 backend 搭配：
 
 - `theme: three_line` + `latex_backend: tabular` -> 经典 `tabular`
-- `theme: three_line` + `latex_backend: tabularray` -> 内置 `three_line_tabularray`
+- `theme: three_line` + `latex_backend: tabularray` -> 使用 `three_line` 风格，通过 `tabularray` backend 渲染
 
 ## 主题系统（Theme System）
 
-pubtab 采用 Jinja2 主题系统。内置 `three_line` 面向学术场景的 booktabs 风格，`three_line_tabularray` 则是其配套的 `tabularray` 后端版本。
+pubtab 采用 Jinja2 主题系统。内置 `three_line` 面向学术场景的 booktabs 风格，并可通过经典 `tabular` backend 或 `tabularray` backend 渲染。
 
 自定义主题目录：
 

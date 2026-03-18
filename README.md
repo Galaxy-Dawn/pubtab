@@ -28,7 +28,7 @@
 
 ## Recent News
 
-- **2026-03-18**: `tabularray` backend support and README refresh — added `tabularray` as an alternative TeX backend for `xlsx2tex`, introduced the built-in `three_line_tabularray` theme, replaced placeholder usage paths with real repo examples under `examples/`, documented GitHub dev installation, and removed the repository test directory from the tracked tree.
+- **2026-03-18**: `tabularray` backend support and README refresh — added `tabularray` as an alternative TeX backend for `xlsx2tex`, updated theme/backend resolution so `three_line` can be used consistently across render and preview, replaced placeholder usage paths with real repo examples under `examples/`, documented GitHub dev installation, and removed the repository test directory from the tracked tree.
 - **2026-03-06**: Preview dependency recovery and resizebox controls — improved TinyTeX / missing-package recovery in preview, and added `resizebox`-related CLI switches for more reliable wide-table export.
 - **2026-03-05**: PyPI-safe README cleanup and release prep — switched README links to PyPI-safe forms and prepared the 1.0.1 release workflow.
 
@@ -100,9 +100,9 @@ pubtab xlsx2tex ./examples/table4.xlsx -o ./out/table4_tblr.tex \
   --theme three_line \
   --latex-backend tabularray
 
-# Preview an existing tabularray tex file
+# Preview the generated tabularray tex file
 pubtab preview ./out/table4_tblr.tex -o ./out/table4_tblr.png \
-  --theme three_line_tabularray --dpi 300
+  --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 Generated `.tex` header includes package hints (comments only):
@@ -236,7 +236,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
 
 # Preview a generated tabularray table
-pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 ## Features by Workflow
@@ -295,11 +295,11 @@ pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 Recommended backend pairing:
 
 - `theme: three_line` + `latex_backend: tabular` -> classic `tabular`
-- `theme: three_line` + `latex_backend: tabularray` -> built-in `three_line_tabularray`
+- `theme: three_line` + `latex_backend: tabularray` -> `three_line` style rendered through the `tabularray` backend
 
 ## Theme System
 
-pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables, and `three_line_tabularray` is the bundled backend variant for `tabularray`.
+pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables and can be rendered through either the classic `tabular` backend or the `tabularray` backend.
 
 Custom theme layout:
 
