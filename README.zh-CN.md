@@ -20,16 +20,17 @@
 ## 亮点
 
 - **回转一致性** — 面向 `tex -> xlsx -> tex` 工作流设计，尽量减少结构漂移。
+- **多 TeX backend 支持** — 同时支持经典 `tabular` 导出与 `tabularray` / `tblr` 输出。
 - **默认全 Sheet 导出** — 未指定 `--sheet` 时，`xlsx2tex` 自动输出全部 `*_sheetNN.tex`。
 - **样式高保真** — 保留合并单元格、颜色、富文本、旋转与常见学术表格语义。
 - **出版级预览** — 一条命令直接生成 PNG/PDF 结果。
 - **Overleaf 友好输出** — 生成的 `.tex` 顶部自动附带注释版 `\usepackage{...}` 提示。
 
-## News
+## 当前状态
 
-- **新增 `tabularray` backend** — `xlsx2tex` 现已支持 `--latex-backend tabularray`，可直接输出 `tblr`。
-- **内置主题配对** — 保持 `three_line` 这一用户主题名不变，同时通过 `latex_backend: tabularray` 自动解析到内置 `three_line_tabularray` 后端主题。
-- **预览说明** — 若你要直接预览已有的 tabularray `.tex` 文件，请使用 `pubtab preview ... --theme three_line_tabularray`，以便自动补齐对应的包提示。
+- `xlsx2tex` 现已支持 `tabularray` 作为可选 TeX backend。
+- 当 `latex_backend` 设为 `tabularray` 时，内置 `three_line` 主题会自动解析到 `three_line_tabularray`。
+- 最新 backend 改动可能会先落在 GitHub，再进入下一次 PyPI 发布；如果你想使用当前开发版本，请直接从 GitHub 安装。
 
 ## 示例
 
@@ -119,7 +120,13 @@ pubtab preview ./out/table4_tblr.tex -o ./out/table4_tblr.png \
 pip install pubtab
 ```
 
-最新 PyPI 版本：[pubtab on PyPI](https://pypi.org/project/pubtab/)
+PyPI 稳定版：[pubtab on PyPI](https://pypi.org/project/pubtab/)
+
+安装当前 GitHub 开发版：
+
+```bash
+pip install "git+https://github.com/Galaxy-Dawn/pubtab.git"
+```
 
 ### CLI 快速上手
 

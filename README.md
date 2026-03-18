@@ -20,16 +20,17 @@
 ## Highlights
 
 - **Roundtrip Consistency** — Designed for `tex -> xlsx -> tex` workflows with minimal structural drift.
+- **Multiple TeX Backends** — Supports both classic `tabular` export and `tabularray` / `tblr` output.
 - **All-Sheets by Default** — `xlsx2tex` exports every sheet as `*_sheetNN.tex` when `--sheet` is not set.
 - **Style Fidelity** — Preserves merged cells, colors, rich text, rotation, and common table semantics.
 - **Publication Preview** — Generate PNG/PDF directly from `.tex` via one CLI entry.
 - **Overleaf-Ready Output** — Generated `.tex` starts with commented `\usepackage{...}` hints.
 
-## News
+## Current Status
 
-- **New: `tabularray` backend** — `xlsx2tex` now supports `--latex-backend tabularray` for `tblr` output.
-- **Built-in theme pair** — Use the familiar `three_line` theme with `latex_backend: tabularray`; pubtab resolves it to the built-in `three_line_tabularray` backend theme automatically.
-- **Preview note** — When previewing an existing tabularray `.tex` file directly, use `pubtab preview ... --theme three_line_tabularray` so package hints match the generated backend.
+- `tabularray` is now supported as an alternative TeX backend for `xlsx2tex`.
+- The built-in `three_line` theme can be resolved to `three_line_tabularray` automatically when `latex_backend` is set to `tabularray`.
+- The latest backend changes may appear on GitHub before the next PyPI release; install from GitHub if you want the current development version.
 
 ## Examples
 
@@ -119,7 +120,13 @@ Generated `.tex` header includes package hints (comments only):
 pip install pubtab
 ```
 
-Latest PyPI release: [pubtab on PyPI](https://pypi.org/project/pubtab/)
+Stable release on PyPI: [pubtab on PyPI](https://pypi.org/project/pubtab/)
+
+Install the current GitHub development version:
+
+```bash
+pip install "git+https://github.com/Galaxy-Dawn/pubtab.git"
+```
 
 ### CLI Quick Start
 
