@@ -8,11 +8,6 @@ temp/
 scripts/
 plan/
 src/pubtab/_visual_audit.py
-tests/complex_fixture_defs.py
-tests/create_complex_fixtures.py
-tests/fixtures/complex/
-tests/test_complex_fixtures.py
-tests/test_realworld_regressions.py
 .DS_Store
 *.xlsx~
 .env
