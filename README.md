@@ -69,40 +69,38 @@
 
 </details>
 
-### Example A: Excel -> LaTeX (all sheets)
+### Example A: Excel -> LaTeX
 
 ```bash
-pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark.tex
+pubtab xlsx2tex ./examples/table4.xlsx -o ./out/table4.tex
 ```
 
-Output files (when workbook has multiple sheets):
+Output file:
 
-- `./out/benchmark_sheet01.tex`
-- `./out/benchmark_sheet02.tex`
-- `...`
+- `./out/table4.tex`
 
-### Example B: LaTeX -> Excel (multi-table to multi-sheet)
+### Example B: LaTeX -> Excel (roundtrip from the generated sample)
 
 ```bash
-pubtab tex2xlsx ./paper/tables.tex -o ./out/tables.xlsx
+pubtab tex2xlsx ./out/table4.tex -o ./out/table4_roundtrip.xlsx
 ```
 
 ### Example C: LaTeX -> PNG / PDF preview
 
 ```bash
-pubtab preview ./out/benchmark_sheet01.tex -o ./out/benchmark_sheet01.png --dpi 300
-pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet01.pdf
+pubtab preview ./out/table4.tex -o ./out/table4.png --dpi 300
+pubtab preview ./out/table4.tex --format pdf -o ./out/table4.pdf
 ```
 
 ### Example D: Excel -> tabularray (`tblr`)
 
 ```bash
-pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark_tblr.tex \
+pubtab xlsx2tex ./examples/table4.xlsx -o ./out/table4_tblr.tex \
   --theme three_line \
   --latex-backend tabularray
 
 # Preview an existing tabularray tex file
-pubtab preview ./out/benchmark_tblr.tex -o ./out/benchmark_tblr.png \
+pubtab preview ./out/table4_tblr.tex -o ./out/table4_tblr.png \
   --theme three_line_tabularray --dpi 300
 ```
 
