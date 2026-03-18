@@ -26,11 +26,11 @@
 - **出版级预览** — 一条命令直接生成 PNG/PDF 结果。
 - **Overleaf 友好输出** — 生成的 `.tex` 顶部自动附带注释版 `\usepackage{...}` 提示。
 
-## 当前状态
+## Recent News
 
-- `xlsx2tex` 现已支持 `tabularray` 作为可选 TeX backend。
-- 当 `latex_backend` 设为 `tabularray` 时，内置 `three_line` 主题会自动解析到 `three_line_tabularray`。
-- 最新 backend 改动可能会先落在 GitHub，再进入下一次 PyPI 发布；如果你想使用当前开发版本，请直接从 GitHub 安装。
+- **2026-03-18**: `tabularray` backend 支持与 README 刷新 —— 为 `xlsx2tex` 增加 `tabularray` 作为可选 TeX backend，引入内置 `three_line_tabularray` 主题，把 README 中的示例路径替换为仓库真实存在的 `examples/` 样例，补充 GitHub dev 版本安装命令，并将仓库中的 `tests` 目录从跟踪树中移除。
+- **2026-03-06**: 预览依赖恢复与 resizebox 控制增强 —— 改进 TinyTeX / 缺失宏包自动恢复流程，并补充 `resizebox` 相关 CLI 选项，提升宽表导出的可控性。
+- **2026-03-05**: 面向 PyPI 的 README 清理与发布准备 —— 将 README 链接切换为 PyPI-safe 形式，并完成 1.0.1 发布流程准备。
 
 ## 示例
 

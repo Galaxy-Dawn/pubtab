@@ -26,11 +26,11 @@
 - **Publication Preview** — Generate PNG/PDF directly from `.tex` via one CLI entry.
 - **Overleaf-Ready Output** — Generated `.tex` starts with commented `\usepackage{...}` hints.
 
-## Current Status
+## Recent News
 
-- `tabularray` is now supported as an alternative TeX backend for `xlsx2tex`.
-- The built-in `three_line` theme can be resolved to `three_line_tabularray` automatically when `latex_backend` is set to `tabularray`.
-- The latest backend changes may appear on GitHub before the next PyPI release; install from GitHub if you want the current development version.
+- **2026-03-18**: `tabularray` backend support and README refresh — added `tabularray` as an alternative TeX backend for `xlsx2tex`, introduced the built-in `three_line_tabularray` theme, replaced placeholder usage paths with real repo examples under `examples/`, documented GitHub dev installation, and removed the repository test directory from the tracked tree.
+- **2026-03-06**: Preview dependency recovery and resizebox controls — improved TinyTeX / missing-package recovery in preview, and added `resizebox`-related CLI switches for more reliable wide-table export.
+- **2026-03-05**: PyPI-safe README cleanup and release prep — switched README links to PyPI-safe forms and prepared the 1.0.1 release workflow.
 
 ## Examples
 
