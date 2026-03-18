@@ -34,7 +34,7 @@ def load_config(path: Union[str, Path]) -> Tuple[Dict[str, Any], None]:
         "theme", "caption", "label", "position",
         "font_size", "resizebox", "col_spec", "header_sep",
         "num_cols", "preview", "preamble", "dpi",
-        "header_rows", "sheet",
+        "header_rows", "sheet", "latex_backend",
     ):
         if key in cfg:
             kwargs[key] = cfg[key]

@@ -25,6 +25,12 @@
 - **Publication Preview** — Generate PNG/PDF directly from `.tex` via one CLI entry.
 - **Overleaf-Ready Output** — Generated `.tex` starts with commented `\usepackage{...}` hints.
 
+## News
+
+- **New: `tabularray` backend** — `xlsx2tex` now supports `--latex-backend tabularray` for `tblr` output.
+- **Built-in theme pair** — Use the familiar `three_line` theme with `latex_backend: tabularray`; pubtab resolves it to the built-in `three_line_tabularray` backend theme automatically.
+- **Preview note** — When previewing an existing tabularray `.tex` file directly, use `pubtab preview ... --theme three_line_tabularray` so package hints match the generated backend.
+
 ## Examples
 
 ### Showcase
@@ -88,6 +94,18 @@ pubtab preview ./out/benchmark_sheet01.tex -o ./out/benchmark_sheet01.png --dpi 
 pubtab preview ./out/benchmark_sheet01.tex --format pdf -o ./out/benchmark_sheet01.pdf
 ```
 
+### Example D: Excel -> tabularray (`tblr`)
+
+```bash
+pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark_tblr.tex \
+  --theme three_line \
+  --latex-backend tabularray
+
+# Preview an existing tabularray tex file
+pubtab preview ./out/benchmark_tblr.tex -o ./out/benchmark_tblr.png \
+  --theme three_line_tabularray --dpi 300
+```
+
 Generated `.tex` header includes package hints (comments only):
 
 ```tex
@@ -131,6 +149,14 @@ import pubtab
 # Excel -> LaTeX
 pubtab.xlsx2tex("table.xlsx", output="table.tex", theme="three_line")
 
+# Excel -> tabularray
+pubtab.xlsx2tex(
+    "table.xlsx",
+    output="table_tblr.tex",
+    theme="three_line",
+    latex_backend="tabularray",
+)
+
 # LaTeX -> Excel
 pubtab.tex_to_excel("table.tex", "table.xlsx")
 
@@ -169,6 +195,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--dpi` | int | `300` | Preview DPI (`--preview`) | Sharper PNG |
 | `--header-sep` | string | auto | Custom separator under header | Custom rule line |
 | `--upright-scripts` | flag | `false` | Render sub/superscript as upright `\mathrm{}` | Typographic preference |
+| `--latex-backend` | `tabular` / `tabularray` | `tabular` | Select LaTeX export backend | Switch between `tabular` and `tblr` |
 
 ### `pubtab tex2xlsx`
 
@@ -199,6 +226,12 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --sheet "Main"
 
 # Two-column table + preview
 pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
+
+# Export with the tabularray backend
+pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
+
+# Preview a generated tabularray table
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
 ```
 
 ## Features by Workflow
@@ -231,6 +264,7 @@ Use a YAML file to define repeatable defaults. CLI arguments always take precede
 
 ```yaml
 theme: three_line
+latex_backend: tabularray
 caption: "Experimental Results"
 label: "tab:results"
 header_rows: 2
@@ -253,9 +287,14 @@ group_separators: [3, 6]
 pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 ```
 
+Recommended backend pairing:
+
+- `theme: three_line` + `latex_backend: tabular` -> classic `tabular`
+- `theme: three_line` + `latex_backend: tabularray` -> built-in `three_line_tabularray`
+
 ## Theme System
 
-pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables.
+pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables, and `three_line_tabularray` is the bundled backend variant for `tabularray`.
 
 Custom theme layout:
 
@@ -294,7 +333,10 @@ pubtab/
     ├── config.py          # YAML config loader
     ├── utils.py           # Escape and color helpers
     └── themes/
-        └── three_line/
+        ├── three_line/
+        │   ├── config.yaml
+        │   └── template.tex
+        └── three_line_tabularray/
             ├── config.yaml
             └── template.tex
 ```

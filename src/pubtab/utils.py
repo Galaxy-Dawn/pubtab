@@ -196,6 +196,8 @@ def format_number(value, fmt: str, strip_leading_zero: bool = True) -> str:
         s = format(v, fmt)
         if strip_leading_zero and -1 < v < 1:
             s = s.replace("0.", ".", 1) if s.startswith("0.") else s.replace("-0.", "-.", 1)
+        if "%" in s:
+            s = s.replace("%", r"\%")
         return s
     except (ValueError, TypeError):
         return str(value)

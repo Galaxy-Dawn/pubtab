@@ -211,6 +211,45 @@ def _strip_table_float(tex: str) -> str:
     return tex.strip()
 
 
+def _split_leading_setup(inner: str) -> tuple[str, str]:
+    """Split non-typesetting setup commands from the actual table body.
+
+    Preview wraps the rendered table in ``\\resizebox``. Commands like
+    ``\\definecolor`` or ``\\setlength`` must stay outside that box, otherwise
+    tabularray previews with many color definitions can render at the wrong
+    scale or with broken merged-cell layout.
+    """
+    setup_prefixes = (
+        "\\definecolor",
+        "\\setlength",
+        "\\renewcommand",
+        "\\SetTblrInner",
+        "\\arrayrulecolor",
+        "\\rowcolors",
+    )
+
+    setup_lines: list[str] = []
+    body_lines: list[str] = []
+    body_started = False
+
+    for line in inner.splitlines():
+        stripped = line.strip()
+        is_setup = (
+            not stripped
+            or stripped.startswith("%")
+            or stripped.startswith(setup_prefixes)
+        )
+        if not body_started and is_setup:
+            setup_lines.append(line)
+            continue
+        body_started = True
+        body_lines.append(line)
+
+    setup = "\n".join(setup_lines).strip()
+    body = "\n".join(body_lines).strip()
+    return setup, body
+
+
 def _build_standalone(tex_content: str, theme: str = "three_line",
                       preamble: Optional[str] = None) -> str:
     """Wrap table LaTeX in a standalone document."""
@@ -224,12 +263,15 @@ def _build_standalone(tex_content: str, theme: str = "three_line",
             pkg_lines.append("\\usepackage[T1]{fontenc}")
         else:
             pkg_lines.append(f"\\usepackage{{{p}}}")
+    pkg_lines.extend(config.preamble_hints)
     pkgs = "\n".join(pkg_lines)
     extra = f"\n{preamble}" if preamble else ""
     inner = _strip_table_float(tex_content)
+    setup, body = _split_leading_setup(inner)
     # Auto-wrap in resizebox for preview if not already present
-    if "\\resizebox" not in inner:
-        inner = f"\\resizebox{{\\linewidth}}{{!}}{{{inner}}}"
+    if "\\resizebox" not in body:
+        body = f"\\resizebox{{\\linewidth}}{{!}}{{{body}}}"
+    inner = f"{setup}\n{body}".strip() if setup else body
     return (
         "\\documentclass[border=10pt]{standalone}\n"
         f"{pkgs}{extra}\n"
@@ -264,6 +306,8 @@ def compile_pdf(
         RuntimeError: If compilation fails.
     """
     pdflatex = ensure_pdflatex()
+    if "tabularray" in theme and "\\begin{tblr}" in tex_content:
+        tex_content = _sanitize_tblr_for_compile(tex_content)
     doc = _build_standalone(tex_content, theme, preamble=preamble)
     output = Path(output)
 
@@ -300,6 +344,13 @@ def compile_pdf(
             _tlmgr_install_package(pkg)
             installed_in_run.add(pkg)
     return output
+
+
+def _sanitize_tblr_for_compile(tex_content: str) -> str:
+    """Drop tabular-only rule/color commands that break inside tblr."""
+    sanitized = re.sub(r"\\rowcolor(?:\[[^\]]*\])?\{[^}]*\}", "", tex_content)
+    sanitized = re.sub(r"\\cmidrule(?:\([^)]*\))?(?:\[[^\]]*\])?\{[^}]*\}\s*", "", sanitized)
+    return sanitized
 
 
 def preview(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass(frozen=True)
@@ -66,7 +66,9 @@ class ThemeConfig:
 
     name: str
     description: str = ""
+    backend: str = "tabular"
     packages: List[str] = field(default_factory=list)
+    preamble_hints: List[str] = field(default_factory=list)
     column_sep: str = "1em"
     font_size: Optional[str] = None
     caption_position: str = "top"

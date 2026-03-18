@@ -33,6 +33,12 @@ def main() -> None:
 @click.option("--dpi", default=None, type=int, help="Preview DPI [default: 300].")
 @click.option("--header-sep", default=None, help="Custom header separator.")
 @click.option("--upright-scripts", is_flag=True, default=False, help="Wrap sub/superscript content in \\mathrm{} for upright rendering.")
+@click.option(
+    "--latex-backend",
+    default=None,
+    type=click.Choice(["tabular", "tabularray"]),
+    help="LaTeX backend used for export.",
+)
 def xlsx2tex_cmd(
     input_file: str,
     output: str,
@@ -54,6 +60,7 @@ def xlsx2tex_cmd(
     dpi: int | None,
     header_sep: str | None,
     upright_scripts: bool,
+    latex_backend: str | None,
 ) -> None:
     """Convert an Excel file to LaTeX.
 
@@ -120,6 +127,8 @@ def xlsx2tex_cmd(
         kwargs["header_sep"] = header_sep
     if upright_scripts:
         kwargs["upright_scripts"] = True
+    if latex_backend is not None:
+        kwargs["latex_backend"] = latex_backend
 
     pt.xlsx2tex(input_file, output, **kwargs)
 

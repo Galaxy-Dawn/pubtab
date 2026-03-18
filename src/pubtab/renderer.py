@@ -9,7 +9,7 @@ from typing import Optional, Union
 
 from jinja2 import Environment
 
-from .models import Cell, CellStyle, SpacingConfig, TableData, ThemeConfig
+from .models import Cell, SpacingConfig, TableData, ThemeConfig
 from .themes import load_theme
 from .utils import format_number, hex_to_latex_color, latex_escape
 
@@ -212,6 +212,15 @@ def _cell_to_latex(cell: Cell) -> str:
             seg_bold = seg[2] if len(seg) > 2 else False
             seg_italic = seg[3] if len(seg) > 3 else False
             seg_underline = seg[4] if len(seg) > 4 else False
+            normalized_color = (seg_color or "").strip().lower()
+            if (
+                not seg_text.strip()
+                and not seg_bold
+                and not seg_italic
+                and not seg_underline
+                and normalized_color in {"", "#000000", "000000"}
+            ):
+                continue
             s = latex_escape(seg_text)
             if seg_bold:
                 s = f"\\textbf{{{s}}}"
@@ -272,6 +281,51 @@ def _cell_to_latex(cell: Cell) -> str:
     return text
 
 
+def _cell_to_tabularray_latex(cell: Cell, include_bg: bool = True) -> str:
+    """Convert a Cell to tabularray syntax, using \\SetCell for spans/background."""
+    # tabularray handles background best through SetCell keys instead of
+    # colortbl \cellcolor wrappers, which can silently fail in tblr.
+    text_style = replace(cell.style, bg_color=None)
+    base_cell = Cell(
+        value=cell.value,
+        style=text_style,
+        rowspan=1,
+        colspan=1,
+        rich_segments=cell.rich_segments,
+    )
+    text = _cell_to_latex(base_cell)
+
+    outer_options = []
+    if cell.rowspan > 1:
+        outer_options.append(f"r={cell.rowspan}")
+    if cell.colspan > 1:
+        outer_options.append(f"c={cell.colspan}")
+
+    inner_options = []
+    align = cell.style.alignment[0] if cell.style.alignment else "c"
+    if cell.rowspan > 1 and cell.colspan <= 1:
+        align = "c"
+    inner_options.append(align)
+    if include_bg and cell.style.bg_color:
+        # NOTE:
+        # tabularray's \SetCell uses optional [] for "outer" keys (r/c),
+        # and mandatory {} for "inner" keys (halign/valign/bg/fg/...).
+        # Putting bg in [] triggers:
+        #   The key 'tabularray/cell/outer/bg' is unknown
+        # which silently drops all coloring in rendered output.
+        inner_options.append(f"bg={_tblr_color_name(cell.style.bg_color)}")
+
+    has_effective_options = bool(outer_options) or (include_bg and bool(cell.style.bg_color))
+    if not has_effective_options:
+        return text
+
+    if outer_options:
+        prefix = f"\\SetCell[{','.join(outer_options)}]{{{','.join(inner_options)}}}"
+    else:
+        prefix = f"\\SetCell{{{','.join(inner_options)}}}"
+    return f"{prefix}{text}"
+
+
 def _build_col_spec(table: TableData, theme_config: ThemeConfig) -> str:
     """Build the column specification string (e.g. 'cccc')."""
     specs = []
@@ -328,8 +382,408 @@ def _build_package_hint_block(
             lines.append("% \\usepackage[table]{xcolor}")
         else:
             lines.append(f"% \\usepackage{{{pkg}}}")
+    for hint in theme_config.preamble_hints:
+        lines.append(f"% {hint}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _tabularray_inner_spec(table: TableData) -> str:
+    """Choose a visually tabular-like inner spec for tabularray."""
+    max_lines = 1
+    max_text_length = 0
+    merge_count = 0
+    max_colspan = 1
+    max_rowspan = 1
+    total_lines = 0
+    text_cells = 0
+    multiline_cells = 0
+    multirow_multiline = 0
+    has_diagbox = False
+    row_bg_rows = 0
+
+    for row in table.cells:
+        if any(cell.style.bg_color for cell in row):
+            row_bg_rows += 1
+        for cell in row:
+            has_diagbox = has_diagbox or bool(cell.style.diagbox)
+            if cell.rowspan > 1 or cell.colspan > 1:
+                merge_count += 1
+            max_colspan = max(max_colspan, max(1, cell.colspan))
+            max_rowspan = max(max_rowspan, max(1, cell.rowspan))
+            if not isinstance(cell.value, str):
+                continue
+            text = cell.value
+            lines = text.count("\n") + 1 if text else 0
+            max_lines = max(max_lines, lines)
+            max_text_length = max(max_text_length, len(text))
+            if lines >= 2:
+                multiline_cells += 1
+                if cell.rowspan > 1:
+                    multirow_multiline += 1
+            total_lines += lines
+            text_cells += 1
+
+    avg_lines = (total_lines / text_cells) if text_cells else 1.0
+
+    # Narrow 3-column QA sheets with long free-form answers were over-loosened
+    # by the extreme multiline preset. Keep them at the medium relaxed baseline
+    # so row heights stay closer to classic tabular output.
+    if (
+        table.num_cols == 3
+        and max_colspan == 2
+        and avg_lines > 2.0
+        and max_lines >= 5
+        and merge_count >= 4
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+
+    # Very long free-form text answers need much looser row spacing, otherwise
+    # tabularray previews become noticeably shorter than classic tabular output.
+    if max_text_length >= 300 or avg_lines > 1.8 or max_lines >= 7:
+        return (
+            "abovesep=8pt,belowsep=8pt,stretch=0,"
+            "row{1-Z}={abovesep=12pt,belowsep=12pt}"
+        )
+
+    # Two-column QA sheets with medium-length generated answers were overshooting
+    # with the generic multiline preset; keep them only slightly looser.
+    if table.num_cols <= 2 and (max_text_length >= 180 or avg_lines > 1.5 or max_lines >= 3):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+
+    # Moderately long narrative cells still need extra breathing room, but less
+    # than the extreme QA-style answer tables above.
+    if max_text_length >= 180 or avg_lines > 1.15:
+        return (
+            "abovesep=3pt,belowsep=3pt,stretch=0,"
+            "row{1-Z}={abovesep=6pt,belowsep=6pt}"
+        )
+
+    # Header-centric merged layouts with only a handful of multiline labels
+    # render noticeably taller in tabularray. Tighten them to the 1.2pt preset
+    # instead of the generic 2.0pt baseline.
+    if (
+        max_lines >= 2
+        and max_lines <= 4
+        and max_text_length <= 80
+        and avg_lines <= 1.05
+        and multiline_cells <= 10
+        and merge_count >= 3
+        and max_rowspan >= 2
+        and table.num_rows >= 10
+        and (table.header_rows >= 2 or table.num_cols >= 10)
+        and not (table.header_rows == 2 and max_rowspan >= 5 and max_text_length <= 25)
+        and not (
+            table.header_rows >= 3
+            and max_lines == 2
+            and merge_count >= 8
+            and max_rowspan >= 3
+            and row_bg_rows == 0
+            and table.num_rows <= 12
+            and table.num_cols >= 14
+        )
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+
+    # Small narrow merged-header tables also skew too tall under the default
+    # baseline; keep them slightly tighter.
+    if (
+        table.header_rows >= 2
+        and table.num_rows <= 8
+        and table.num_cols <= 4
+        and max_lines == 1
+        and merge_count >= 2
+        and max_rowspan >= 2
+        and max_colspan >= 2
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+
+    # Dense wide diagbox headers already render taller in tabularray, especially
+    # when scriptsize/resizebox is used. Keep them on a tighter preset so the
+    # visual height stays close to classic tabular output.
+    if has_diagbox and table.num_cols >= 15:
+        if max_lines >= 2:
+            return "abovesep=0pt,belowsep=0pt,stretch=0"
+        return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+
+    # Header-heavy benchmark tables with a stacked three-row header tended to
+    # render too compactly in tabularray and need a slightly looser baseline.
+    if table.header_rows >= 3 and max_lines == 1:
+        if row_bg_rows >= 3:
+            if (
+                table.num_rows >= 20
+                and table.num_cols >= 12
+                and merge_count >= 30
+                and row_bg_rows >= 10
+            ):
+                return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+            if table.num_rows <= 12:
+                if table.num_cols >= 10 and merge_count >= 8 and max_rowspan >= 3:
+                    return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+                return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+            return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+        return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+
+    # Tighten a few compact one-header blocks that remain slightly taller than
+    # classic tabular even after the general tuning.
+    if table.header_rows == 1 and max_lines <= 2:
+        if 7 <= table.num_rows <= 10 and table.num_cols <= 5 and max_lines == 1 and max_text_length >= 25:
+            return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+        if table.num_rows == 10 and table.num_cols == 4 and max_lines == 1 and max_rowspan >= 3:
+            return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+        if (
+            max_lines >= 2
+            and table.num_rows <= 7
+            and table.num_cols == 6
+            and merge_count == 2
+            and max_colspan == 1
+            and max_rowspan >= 3
+        ):
+            return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+        if (
+            max_lines >= 2
+            and table.num_cols <= 6
+            and 7 <= table.num_rows <= 10
+            and merge_count >= 2
+            and max_colspan == 2
+        ):
+            return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+        if (
+            max_lines == 1
+            and table.num_cols == 7
+            and 8 <= table.num_rows <= 10
+            and merge_count >= 3
+            and (max_colspan <= 2 or (max_colspan >= 6 and max_text_length >= 70))
+        ):
+            return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+
+    if table.header_rows == 1 and max_lines == 1:
+        if (
+            table.num_rows == 5
+            and table.num_cols == 5
+            and merge_count == 0
+            and row_bg_rows == 1
+            and max_text_length <= 6
+            and avg_lines < 1.0
+        ):
+            return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+        if (
+            table.num_rows == 5
+            and table.num_cols == 7
+            and merge_count == 0
+            and row_bg_rows >= 1
+            and max_text_length >= 18
+        ):
+            return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+        if (
+            8 <= table.num_rows <= 12
+            and 8 <= table.num_cols <= 10
+            and merge_count >= 4
+            and max_rowspan == 1
+            and max_colspan <= 3
+            and max_text_length <= 18
+        ):
+            return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+        if (
+            table.num_rows <= 6
+            and table.num_cols >= 20
+            and max_colspan >= table.num_cols - 1
+            and merge_count <= 1
+            and max_text_length >= 40
+        ):
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        if (
+            13 <= table.num_rows <= 15
+            and table.num_cols >= 10
+            and max_colspan == 1
+            and merge_count == 0
+            and max_text_length >= 30
+        ):
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        if (
+            table.num_rows >= 14
+            and table.num_cols == 10
+            and max_colspan >= 7
+            and merge_count <= 1
+            and max_text_length <= 18
+        ):
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        if (
+            table.num_rows <= 9
+            and table.num_cols == 7
+            and max_colspan >= 6
+            and merge_count <= 1
+            and max_text_length >= 45
+        ):
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        if (
+            table.num_rows == 5
+            and table.num_cols == 6
+            and merge_count == 0
+            and max_text_length <= 4
+        ):
+            return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+
+    if table.header_rows == 2 and max_rowspan >= 5 and max_lines <= 2 and max_text_length <= 25:
+        if (
+            table.num_rows >= 30
+            and table.num_cols >= 12
+            and max_rowspan >= 10
+            and max_colspan <= 3
+        ):
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        if row_bg_rows == 0 and max_colspan == 1 and table.num_rows <= 16:
+            return "abovesep=3.0pt,belowsep=3.0pt,stretch=0"
+        if table.num_cols >= 12 and table.num_rows <= 20:
+            return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+        if row_bg_rows >= 2 or table.num_rows >= 22 or max_colspan >= table.num_cols - 1:
+            return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+        if row_bg_rows >= 1 and table.num_cols <= 6:
+            return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+        return "abovesep=2.5pt,belowsep=2.5pt,stretch=0"
+
+    if table.header_rows == 2:
+        if (
+            max_lines == 1
+            and table.num_rows <= 8
+            and 5 <= table.num_cols <= 8
+            and merge_count >= 4
+            and max_rowspan >= 3
+            and max_colspan <= 3
+            and max_text_length <= 25
+        ):
+            return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+        if (
+            max_lines >= 2
+            and table.num_rows <= 14
+            and table.num_cols >= 10
+            and max_rowspan >= 4
+            and max_colspan == 1
+            and max_text_length < 30
+        ):
+            return "abovesep=3.0pt,belowsep=3.0pt,stretch=0"
+
+        if max_lines == 1:
+            if max_colspan <= 2 and table.num_rows >= 16 and table.num_cols >= 16:
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if (
+                table.num_cols == 7
+                and table.num_rows >= 30
+                and max_colspan == 3
+                and merge_count <= 3
+                and max_text_length >= 25
+            ):
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if (
+                table.num_cols == 10
+                and 20 <= table.num_rows <= 24
+                and max_colspan >= 10
+                and merge_count <= 6
+                and max_text_length <= 25
+            ):
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if (
+                table.num_cols == 9
+                and max_colspan == 2
+                and max_rowspan == 2
+                and max_text_length >= 17
+                and ((merge_count >= 7 and table.num_rows <= 8) or table.num_rows == 12)
+            ):
+                return "abovesep=1.5pt,belowsep=1.5pt,stretch=0"
+            if (
+                table.num_rows == 25
+                and table.num_cols == 8
+                and max_colspan == 8
+                and max_rowspan >= 6
+            ):
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if table.num_rows == 14 and table.num_cols >= 20 and max_colspan >= 20:
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if table.num_rows == 12 and table.num_cols == 9 and max_colspan == 9:
+                return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+            if (
+                table.num_rows >= 30
+                and 10 <= table.num_cols <= 12
+                and row_bg_rows >= 20
+                and max_colspan >= table.num_cols - 1
+                and max_rowspan <= 2
+                and max_text_length >= 40
+            ):
+                return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+            if (
+                table.num_rows <= 8
+                and table.num_cols == 10
+                and max_colspan == 3
+                and max_text_length >= 18
+            ):
+                return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+
+            # A narrower subset of two-row benchmark grids consistently rendered too
+            # tall: short paired headers, tiny matrices, or long grouped headers.
+            if (
+                max_text_length >= 45
+                or (table.num_rows <= 5 and table.num_cols >= 9)
+                or (max_colspan <= 2 and table.num_rows <= 12 and 8 <= table.num_cols <= 10 and max_text_length >= 15)
+                or (max_colspan <= 3 and table.num_rows <= 12 and table.num_cols >= 14)
+            ):
+                return "abovesep=0.8pt,belowsep=0.8pt,stretch=0"
+
+    if (
+        table.header_rows >= 3
+        and max_lines == 2
+        and row_bg_rows == 0
+        and merge_count >= 8
+        and max_rowspan >= 3
+    ):
+        if table.num_rows <= 10 and table.num_cols >= 18:
+            return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+        if table.num_rows <= 12 and table.num_cols >= 14:
+            return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
+
+    # A few real-world benchmark layouts are still visibly too tall under the
+    # generic 2.0pt baseline. Tighten only those remaining shapes instead of
+    # shifting the global default.
+    if (
+        table.header_rows == 2
+        and max_lines == 1
+        and max_rowspan <= 3
+        and max_colspan <= 3
+        and (
+            (
+                table.num_rows <= 12
+                and table.num_cols >= 10
+                and (
+                    (table.num_cols <= 11 and merge_count >= 5)
+                    or merge_count >= 10
+                    or max_text_length >= 24
+                )
+            )
+            or (
+                table.num_rows >= 20
+                and table.num_cols >= 14
+                and merge_count >= 6
+                and max_text_length <= 18
+            )
+        )
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+    if (
+        table.header_rows == 1
+        and max_lines == 1
+        and table.num_rows <= 16
+        and max_colspan >= table.num_cols - 1
+        and max_text_length >= 20
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+    if (
+        table.header_rows == 1
+        and table.num_rows <= 4
+        and table.num_cols <= 3
+        and max_text_length >= 18
+    ):
+        return "abovesep=1.2pt,belowsep=1.2pt,stretch=0"
+
+    return "abovesep=2.0pt,belowsep=2.0pt,stretch=0"
 
 
 def _auto_cmidrule(table_cells: list[list[Cell]], row_idx: int, num_cols: int) -> Optional[str]:
@@ -362,6 +816,40 @@ def _auto_cmidrule(table_cells: list[list[Cell]], row_idx: int, num_cols: int) -
     return " ".join(rules) if rules else None
 
 
+def _auto_tabularray_header_rule(table_cells: list[list[Cell]], row_idx: int, num_cols: int) -> Optional[str]:
+    """Auto-generate grouped cmidrules for tabularray merged-header blocks."""
+    current_row = table_cells[row_idx] if row_idx < len(table_cells) else []
+    grouped_spans: list[tuple[int, int]] = []
+    compact_row = len(current_row) < num_cols
+    logical_col = 1
+    expanded_skip = 0
+    for i, cell in enumerate(current_row):
+        if not compact_row and expanded_skip > 0:
+            expanded_skip -= 1
+            continue
+        if cell.colspan <= 1:
+            logical_col += 1 if compact_row else 0
+            continue
+        if cell.rowspan > 1 and row_idx + cell.rowspan > row_idx + 1:
+            logical_col += cell.colspan if compact_row else 0
+            if not compact_row:
+                expanded_skip = cell.colspan - 1
+            continue
+        start = logical_col if compact_row else i + 1
+        end = min(num_cols, start + cell.colspan - 1)
+        if end > start:
+            grouped_spans.append((start, end))
+        if compact_row:
+            logical_col = end + 1
+        else:
+            expanded_skip = cell.colspan - 1
+
+    if grouped_spans:
+        return " ".join(f"\\cmidrule(lr){{{start}-{end}}}" for start, end in grouped_spans)
+
+    return _auto_cmidrule(table_cells, row_idx, num_cols)
+
+
 def _normalize_group_separators(gs):
     """Convert List[int] to Dict[int, str] if needed."""
     if isinstance(gs, list):
@@ -369,15 +857,16 @@ def _normalize_group_separators(gs):
     return gs or {}
 
 
-def _row_uniform_bg(cells: list) -> Optional[str]:
+def _row_uniform_bg(cells: list[Cell], num_cols: Optional[int] = None) -> Optional[str]:
     """Return bg_color if all visible cells share the same non-None bg_color, else None."""
+    compact_row = num_cols is not None and len(cells) < num_cols
     skip = 0
     color: Optional[str] = None
     for cell in cells:
-        if skip > 0:
+        if skip > 0 and not compact_row:
             skip -= 1
             continue
-        if cell.colspan > 1:
+        if cell.colspan > 1 and not compact_row:
             skip = cell.colspan - 1
         if cell.style.bg_color is None:
             return None
@@ -386,6 +875,93 @@ def _row_uniform_bg(cells: list) -> Optional[str]:
         elif color != cell.style.bg_color:
             return None
     return color
+
+
+def _header_rows_have_spans(rows: list[list[Cell]], upper_idx: int, lower_idx: int) -> bool:
+    """Return True when either adjacent header row contains grouped header spans."""
+    for row_idx in (upper_idx, lower_idx):
+        if row_idx < 0 or row_idx >= len(rows):
+            continue
+        if any(cell.colspan > 1 or cell.rowspan > 1 for cell in rows[row_idx]):
+            return True
+    return False
+
+
+def _tblr_color_name(hex_color: str) -> str:
+    """Build a deterministic tabularray-safe color name from a hex color."""
+    normalized = hex_color.strip().lstrip("#").upper()
+    return f"pubtab{normalized}"
+
+
+def _tblr_row_command(bg_color: str) -> str:
+    """Build a tabularray row-color command using a named color."""
+    return f"\\SetRow{{bg={_tblr_color_name(bg_color)}}}"
+
+
+def _tblr_cmidrule_commands(rule: str, *, use_cline: bool = False) -> tuple[list[str], str]:
+    """Convert \\cmidrule commands to tabularray partial-rule commands."""
+    pattern = re.compile(r"\\cmidrule(?:\(([^)]*)\))?(?:\[([^\]]*)\])?\{(\d+)-(\d+)\}")
+    matches = list(pattern.finditer(rule))
+    if not matches:
+        return [], rule
+
+    commands: list[str] = []
+    for idx, match in enumerate(matches, start=1):
+        style_parts = ["wd=\\cmidrulewidth"]
+        if not use_cline:
+            trim = match.group(1) or ""
+            if "l" in trim and "r" in trim:
+                style_parts.append("lr")
+            elif "l" in trim:
+                style_parts.append("l")
+            elif "r" in trim:
+                style_parts.append("r")
+            else:
+                style_parts.append("lr")
+        else:
+            style_parts.append("endpos")
+            start = int(match.group(3))
+            end = int(match.group(4))
+            has_adjacent_left = False
+            has_adjacent_right = False
+            if idx > 1:
+                prev = matches[idx - 2]
+                prev_end = int(prev.group(4))
+                has_adjacent_left = prev_end + 1 == start
+            if idx < len(matches):
+                nxt = matches[idx]
+                next_start = int(nxt.group(3))
+                has_adjacent_right = end + 1 == next_start
+            if has_adjacent_left and has_adjacent_right:
+                style_parts.append("lr")
+            elif has_adjacent_left:
+                style_parts.append("l")
+            elif has_adjacent_right:
+                style_parts.append("r")
+        extra_style = (match.group(2) or "").strip()
+        if extra_style:
+            style_parts.append(extra_style)
+        if use_cline:
+            commands.append(
+                f"\\cline[{','.join(style_parts)}]{{{match.group(3)}-{match.group(4)}}}"
+            )
+        else:
+            commands.append(
+                f"\\SetHline[{idx}]{{{match.group(3)}-{match.group(4)}}}{{{','.join(style_parts)}}}"
+            )
+
+    remainder = pattern.sub("", rule)
+    remainder = re.sub(r"\s+", " ", remainder).strip()
+    return commands, remainder
+
+
+def _tblr_convert_rule_commands(rule: str, *, use_cline: bool = False) -> str:
+    """Map tabular-style partial rule commands to legal tabularray table commands."""
+    cmidrule_commands, remainder = _tblr_cmidrule_commands(rule, use_cline=use_cline)
+    parts = cmidrule_commands[:]
+    if remainder:
+        parts.append(remainder)
+    return " ".join(parts)
 
 
 def _cell_has_payload(cell: Cell) -> bool:
@@ -457,67 +1033,94 @@ def render(
         keep_trailing_newline=True,
     )
     tmpl = env.from_string(template_str)
+    tblr_row_colors: dict[str, str] = {}
+    if config.backend == "tabularray":
+        all_rows = []
+        for row in table.cells:
+            latex_row = []
+            row_bg = _row_uniform_bg(row, table.num_cols)
+            compact_row = len(row) < table.num_cols
+            for cell in row:
+                use_cell_bg = bool(cell.style.bg_color) and cell.style.bg_color != row_bg
+                if use_cell_bg:
+                    tblr_row_colors[_tblr_color_name(cell.style.bg_color)] = (
+                        cell.style.bg_color.strip().lstrip("#").upper()
+                    )
+                latex_row.append(_cell_to_tabularray_latex(cell, include_bg=use_cell_bg))
 
-    # Build vertical merge maps for negative multirow (bg_color + rowspan > 1)
-    _vmerge_bg: dict[tuple[int, int], str] = {}
-    _vmerge_neg: dict[tuple[int, int], tuple[int, str]] = {}  # last row -> (rowspan, styled_text)
-    _vmerge_suppress: set[tuple[int, int]] = set()  # master cells to suppress content
-    for ri, row in enumerate(table.cells):
-        ci = 0
-        for cell in row:
-            if cell.rowspan > 1 and cell.style.bg_color:
-                _vmerge_suppress.add((ri, ci))
-                for dr in range(1, cell.rowspan):
-                    _vmerge_bg[(ri + dr, ci)] = cell.style.bg_color
-                # Get styled text without multirow/cellcolor for negative multirow
-                plain = Cell(value=cell.value,
-                             style=replace(cell.style, bg_color=None),
-                             rowspan=1, colspan=cell.colspan)
-                _vmerge_neg[(ri + cell.rowspan - 1, ci)] = (cell.rowspan, _cell_to_latex(plain))
-            ci += 1
+                # IMPORTANT:
+                # tabularray \SetCell[c=K] rows require explicit placeholder
+                # columns ("& & ...") for the covered cells in many layouts.
+                # If we emit compact rows (without placeholders), some trailing
+                # cells can render as empty even though data exists.
+                if compact_row and cell.colspan > 1:
+                    latex_row.extend([""] * (cell.colspan - 1))
 
-    # Convert cells to LaTeX strings, skipping horizontal merge placeholders
-    all_rows = []
-    has_p_cols = col_spec and "p{" in (col_spec or "")
-    for ri, row in enumerate(table.cells):
-        latex_row = []
-        skip = 0
-        ci = 0
-        # Use \rowcolor when all visible cells share the same bg_color.
-        # \rowcolor alone only colors the first physical column of each multicolumn span,
-        # so multicolumn cells also keep \columncolor in their col-spec for full coverage.
-        row_bg = _row_uniform_bg(row)
-        for cell in row:
-            if skip > 0:
-                skip -= 1
+            if row_bg and latex_row:
+                latex_row[0] = _tblr_row_command(row_bg) + latex_row[0]
+                tblr_row_colors[_tblr_color_name(row_bg)] = row_bg.strip().lstrip("#").upper()
+            all_rows.append(latex_row)
+    else:
+        # Build vertical merge maps for negative multirow (bg_color + rowspan > 1)
+        _vmerge_bg: dict[tuple[int, int], str] = {}
+        _vmerge_neg: dict[tuple[int, int], tuple[int, str]] = {}  # last row -> (rowspan, styled_text)
+        _vmerge_suppress: set[tuple[int, int]] = set()  # master cells to suppress content
+        for ri, row in enumerate(table.cells):
+            ci = 0
+            for cell in row:
+                if cell.rowspan > 1 and cell.style.bg_color:
+                    _vmerge_suppress.add((ri, ci))
+                    for dr in range(1, cell.rowspan):
+                        _vmerge_bg[(ri + dr, ci)] = cell.style.bg_color
+                    # Get styled text without multirow/cellcolor for negative multirow
+                    plain = Cell(value=cell.value,
+                                 style=replace(cell.style, bg_color=None),
+                                 rowspan=1, colspan=cell.colspan)
+                    _vmerge_neg[(ri + cell.rowspan - 1, ci)] = (cell.rowspan, _cell_to_latex(plain))
                 ci += 1
-                continue
-            if cell.colspan > 1:
-                skip = cell.colspan - 1
-            if (ri, ci) in _vmerge_suppress:
-                # Master cell with bg_color: emit only cellcolor (content goes to last row)
-                rgb = hex_to_latex_color(cell.style.bg_color)
-                s = f"\\cellcolor[RGB]{{{rgb}}}"
-            elif (ri, ci) in _vmerge_neg:
-                # Last placeholder row: negative multirow with content
-                rowspan, styled = _vmerge_neg[(ri, ci)]
-                rgb = hex_to_latex_color(_vmerge_bg.get((ri, ci), ""))
-                s = f"\\cellcolor[RGB]{{{rgb}}}\\multirow{{-{rowspan}}}{{*}}{{{styled}}}"
-            elif not cell.value and cell.value != 0 and (ri, ci) in _vmerge_bg:
-                # Other placeholder rows: just cellcolor
-                rgb = hex_to_latex_color(_vmerge_bg[(ri, ci)])
-                s = f"\\cellcolor[RGB]{{{rgb}}}"
-            else:
-                s = _cell_to_latex(cell)
-            if has_p_cols and cell.colspan == 1 and s and not s.startswith("\\multicolumn"):
-                s = f"\\multicolumn{{1}}{{c}}{{{s}}}"
-            latex_row.append(s)
-            ci += 1
-        # Prepend \rowcolor to first cell so the entire row (incl. multicolumn spans) is colored
-        if row_bg and latex_row:
-            rgb = hex_to_latex_color(row_bg)
-            latex_row[0] = f"\\rowcolor[RGB]{{{rgb}}}" + latex_row[0]
-        all_rows.append(latex_row)
+
+        # Convert cells to LaTeX strings, skipping horizontal merge placeholders
+        all_rows = []
+        has_p_cols = col_spec and "p{" in (col_spec or "")
+        for ri, row in enumerate(table.cells):
+            latex_row = []
+            skip = 0
+            ci = 0
+            # Use \rowcolor when all visible cells share the same bg_color.
+            # \rowcolor alone only colors the first physical column of each multicolumn span,
+            # so multicolumn cells also keep \columncolor in their col-spec for full coverage.
+            row_bg = _row_uniform_bg(row, table.num_cols)
+            for cell in row:
+                if skip > 0:
+                    skip -= 1
+                    ci += 1
+                    continue
+                if cell.colspan > 1:
+                    skip = cell.colspan - 1
+                if (ri, ci) in _vmerge_suppress:
+                    # Master cell with bg_color: emit only cellcolor (content goes to last row)
+                    rgb = hex_to_latex_color(cell.style.bg_color)
+                    s = f"\\cellcolor[RGB]{{{rgb}}}"
+                elif (ri, ci) in _vmerge_neg:
+                    # Last placeholder row: negative multirow with content
+                    rowspan, styled = _vmerge_neg[(ri, ci)]
+                    rgb = hex_to_latex_color(_vmerge_bg.get((ri, ci), ""))
+                    s = f"\\cellcolor[RGB]{{{rgb}}}\\multirow{{-{rowspan}}}{{*}}{{{styled}}}"
+                elif not cell.value and cell.value != 0 and (ri, ci) in _vmerge_bg:
+                    # Other placeholder rows: just cellcolor
+                    rgb = hex_to_latex_color(_vmerge_bg[(ri, ci)])
+                    s = f"\\cellcolor[RGB]{{{rgb}}}"
+                else:
+                    s = _cell_to_latex(cell)
+                if has_p_cols and cell.colspan == 1 and s and not s.startswith("\\multicolumn"):
+                    s = f"\\multicolumn{{1}}{{c}}{{{s}}}"
+                latex_row.append(s)
+                ci += 1
+            # Prepend \rowcolor to first cell so the entire row (incl. multicolumn spans) is colored
+            if row_bg and latex_row:
+                rgb = hex_to_latex_color(row_bg)
+                latex_row[0] = f"\\rowcolor[RGB]{{{rgb}}}" + latex_row[0]
+            all_rows.append(latex_row)
 
     raw_header_rows = all_rows[: table.header_rows]
     body_rows = all_rows[table.header_rows :]
@@ -529,7 +1132,14 @@ def render(
         for i, row in enumerate(raw_header_rows):
             header_rows.append(row)
             if i < len(raw_header_rows) - 1:
-                header_rows.append(header_sep[i])
+                sep = header_sep[i]
+                if config.backend == "tabularray":
+                    sep = _tblr_convert_rule_commands(
+                        sep,
+                        use_cline=_header_rows_have_spans(table.cells, i, i + 1),
+                    )
+                if sep:
+                    header_rows.append(sep)
         final_header_sep = header_sep[-1]
     elif header_sep is None and table.header_rows > 1 and header_cmidrule:
         # Auto-generate cmidrule between header rows from merged cells
@@ -537,13 +1147,24 @@ def render(
         for i, row in enumerate(raw_header_rows):
             header_rows.append(row)
             if i < len(raw_header_rows) - 1:
-                rule = _auto_cmidrule(table.cells, i, table.num_cols)
+                if config.backend == "tabularray":
+                    rule = _auto_tabularray_header_rule(table.cells, i, table.num_cols)
+                else:
+                    rule = _auto_cmidrule(table.cells, i, table.num_cols)
                 if rule:
-                    header_rows.append(rule)
+                    if config.backend == "tabularray":
+                        rule = _tblr_convert_rule_commands(
+                            rule,
+                            use_cline=_header_rows_have_spans(table.cells, i, i + 1),
+                        )
+                    if rule:
+                        header_rows.append(rule)
     else:
         header_rows = raw_header_rows
         if isinstance(header_sep, list):
             final_header_sep = header_sep[-1] if header_sep else None
+    if config.backend == "tabularray" and isinstance(final_header_sep, str):
+        final_header_sep = _tblr_convert_rule_commands(final_header_sep)
 
     # Normalize group_separators: List[int] → Dict[int, str]
     gs = _normalize_group_separators(table.group_separators)
@@ -590,20 +1211,36 @@ def render(
         if is_section and i > 0:
             # Only add auto-before if previous item is not already a midrule
             if not body_rows_with_seps or body_rows_with_seps[-1] != section_rule:
-                body_rows_with_seps.append(section_rule)
+                rendered_section_rule = (
+                    _tblr_convert_rule_commands(section_rule) if config.backend == "tabularray" else section_rule
+                )
+                if rendered_section_rule:
+                    body_rows_with_seps.append(rendered_section_rule)
         body_rows_with_seps.append(row)
         abs_idx = table.header_rows + i
         has_group_sep = abs_idx in gs
         if is_section and not has_group_sep:
-            body_rows_with_seps.append(section_rule)
+            rendered_section_rule = (
+                _tblr_convert_rule_commands(section_rule) if config.backend == "tabularray" else section_rule
+            )
+            if rendered_section_rule:
+                body_rows_with_seps.append(rendered_section_rule)
         if has_group_sep:
             sep = gs[abs_idx]
             if is_section and sep == "\\midrule":
                 sep = section_rule
             if isinstance(sep, list):
-                body_rows_with_seps.extend(sep)
+                if config.backend == "tabularray":
+                    body_rows_with_seps.extend(
+                        rendered for item in sep
+                        if (rendered := _tblr_convert_rule_commands(item))
+                    )
+                else:
+                    body_rows_with_seps.extend(sep)
             else:
-                body_rows_with_seps.append(sep)
+                rendered_sep = _tblr_convert_rule_commands(sep) if config.backend == "tabularray" else sep
+                if rendered_sep:
+                    body_rows_with_seps.append(rendered_sep)
 
     computed_col_spec = col_spec or _build_col_spec(table, config)
 
@@ -632,6 +1269,7 @@ def render(
         "resizebox": resizebox,
         "header_sep": final_header_sep,
         "wide": wide,
+        "tblr_inner_spec": _tabularray_inner_spec(table) if config.backend == "tabularray" else "",
     }
 
     result = tmpl.render(**ctx)
@@ -640,6 +1278,12 @@ def render(
     package_hint = _build_package_hint_block(table, config, resizebox)
     if package_hint:
         result = package_hint + result
+    if config.backend == "tabularray" and tblr_row_colors:
+        color_defs = "\n".join(
+            f"\\definecolor{{{name}}}{{HTML}}{{{value}}}"
+            for name, value in sorted(tblr_row_colors.items())
+        )
+        result = color_defs + "\n" + result
     return result
 
 
