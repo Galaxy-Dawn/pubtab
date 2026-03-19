@@ -92,7 +92,7 @@ def xlsx2tex(
               `stem_sheetNN.tex`.
         config: Path to YAML config file (explicit kwargs override config values).
         sheet: Sheet name or 0-based index.
-        theme: Theme name.
+        theme: Style theme name.
         caption: Table caption (always passed as-is, no escaping).
         label: LaTeX label.
         header_rows: Number of header rows in Excel.
@@ -110,7 +110,8 @@ def xlsx2tex(
         preview: Generate PNG preview.
         preamble: Extra LaTeX preamble for preview.
         dpi: Preview resolution.
-        latex_backend: Export backend, either "tabular" or "tabularray".
+        latex_backend: TeX backend used for rendering, either "tabular" or
+            "tabularray".
         wide: Deprecated alias for span_columns.
         raw_caption: Deprecated, ignored.
 
@@ -278,8 +279,8 @@ def preview(
         tex_input: LaTeX string, path to .tex file, or directory of `.tex` files.
         output: Output file path or output directory.
             For directory input, defaults to `<tex_input>/preview_<format>/`.
-        theme: Theme name.
-        latex_backend: Explicit LaTeX backend for preview document assembly.
+        theme: Style theme name.
+        latex_backend: Explicit TeX backend for preview document assembly.
             If omitted, preview will infer `tabularray` from `tblr` content when
             possible.
         dpi: Resolution (PNG only).
@@ -364,8 +365,8 @@ def compile_pdf(
     Args:
         tex_input: LaTeX string or path to .tex file.
         output: Output PDF path. Defaults to input stem + .pdf.
-        theme: Theme name (for package imports).
-        latex_backend: Explicit LaTeX backend for preview document assembly.
+        theme: Style theme name used to load package and template metadata.
+        latex_backend: Explicit TeX backend for preview document assembly.
         preamble: Extra LaTeX preamble.
 
     Returns:

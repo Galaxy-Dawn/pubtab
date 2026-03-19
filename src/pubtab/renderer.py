@@ -1009,9 +1009,9 @@ def render(
 
     Args:
         table: The table data to render.
-        theme: Theme name.
-        latex_backend: Explicit LaTeX backend. If omitted, infer from theme alias
-            or fall back to the theme's default backend.
+        theme: Style theme name.
+        latex_backend: Explicit TeX backend. If omitted, infer from a deprecated
+            theme alias or fall back to the theme's default backend.
         caption: Table caption (always passed as-is, no escaping).
         label: LaTeX label.
         position: Table float position.

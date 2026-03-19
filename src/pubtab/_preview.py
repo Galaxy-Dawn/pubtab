@@ -255,7 +255,7 @@ def _resolve_preview_theme_backend(
     theme: str,
     latex_backend: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Resolve preview theme/backend, inferring tabularray from tblr content."""
+    """Resolve preview style theme/backend, inferring tabularray from tblr content."""
     canonical_theme, resolved_backend = normalize_theme_backend(theme, latex_backend)
     if latex_backend is None and "\\begin{tblr}" in tex_content:
         resolved_backend = "tabularray"
@@ -268,7 +268,7 @@ def _build_standalone(
     latex_backend: Optional[str] = None,
     preamble: Optional[str] = None,
 ) -> str:
-    """Wrap table LaTeX in a standalone document."""
+    """Wrap table LaTeX in a standalone document using a style theme/backend pair."""
     canonical_theme, resolved_backend = _resolve_preview_theme_backend(
         tex_content, theme, latex_backend
     )
@@ -316,8 +316,8 @@ def compile_pdf(
     Args:
         tex_content: Raw LaTeX table code.
         output: Output PDF path.
-        theme: Theme name (for package imports).
-        latex_backend: Explicit LaTeX backend.
+        theme: Style theme name used to load package metadata.
+        latex_backend: Explicit TeX backend.
         preamble: Extra LaTeX preamble (e.g. custom commands).
 
     Returns:
@@ -395,8 +395,8 @@ def preview(
     Args:
         tex_input: LaTeX string or path to .tex file.
         output: Output PNG path. Defaults to input stem + .png.
-        theme: Theme name.
-        latex_backend: Explicit LaTeX backend.
+        theme: Style theme name.
+        latex_backend: Explicit TeX backend.
         dpi: Resolution for PNG output.
 
     Returns:

@@ -30,7 +30,7 @@ def list_themes() -> list[str]:
 
 
 def normalize_theme_backend(name: str, backend: Optional[str] = None) -> tuple[str, str]:
-    """Normalize a user-facing theme/backend pair.
+    """Normalize a user-facing style-theme/backend pair.
 
     Supports deprecated backend-specific theme aliases such as
     ``three_line_tabularray`` while keeping ``theme`` and ``backend`` conceptually
@@ -57,7 +57,7 @@ def normalize_theme_backend(name: str, backend: Optional[str] = None) -> tuple[s
 
 
 def _resolve_theme_dir(name: str, backend: str) -> Path:
-    """Resolve a canonical theme/backend pair to a concrete theme directory."""
+    """Resolve a canonical style-theme/backend pair to a concrete theme directory."""
     canonical_name, resolved_backend = normalize_theme_backend(name, backend)
 
     if resolved_backend == "tabular":
@@ -79,12 +79,12 @@ def _resolve_theme_dir(name: str, backend: str) -> Path:
 
 
 def resolve_theme(name: str, backend: str = "tabular") -> str:
-    """Resolve a user-facing theme/backend pair to an actual theme directory name."""
+    """Resolve a user-facing style-theme/backend pair to an actual theme directory name."""
     return _resolve_theme_dir(name, backend).name
 
 
 def load_theme(name: str, backend: Optional[str] = None) -> tuple[ThemeConfig, str]:
-    """Load a theme's config and template.
+    """Load a style theme's config and template for a specific backend.
 
     Returns:
         Tuple of (ThemeConfig, template_string).
