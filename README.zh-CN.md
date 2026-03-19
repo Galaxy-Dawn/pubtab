@@ -184,7 +184,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `-o, --output` | 路径 | 必填 | 输出 `.tex` 文件路径或输出目录；当 `INPUT_FILE` 为目录时，此项必须是目录 | 指定输出位置 |
 | `-c, --config` | 路径 | 无 | YAML 配置文件 | 团队统一配置 |
 | `--sheet` | sheet 名 / 0 起始索引 | 全部 sheet | 仅导出指定 sheet | 单 sheet 调试 |
-| `--theme` | 字符串 | `three_line` | 渲染主题 | 切换样式 |
+| `--theme` | 字符串 | `three_line` | 渲染使用的样式主题 | 切换视觉风格 |
 | `--caption` | 字符串 | 无 | 表格标题 | 论文排版 |
 | `--label` | 字符串 | 无 | LaTeX 标签 | 交叉引用 |
 | `--header-rows` | 整数 | 自动识别 | 表头行数 | 覆盖自动识别 |
@@ -200,7 +200,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--dpi` | 整数 | `300` | 预览 DPI（配合 `--preview`） | 高清输出 |
 | `--header-sep` | 字符串 | 自动 | 自定义表头分隔线 | 自定义线条 |
 | `--upright-scripts` | 开关 | `false` | 上下标使用直立 `\mathrm{}` | 公式排版偏好 |
-| `--latex-backend` | `tabular` / `tabularray` | `tabular` | 选择 LaTeX 导出后端 | 在 `tabular` 与 `tblr` 间切换 |
+| `--latex-backend` | `tabular` / `tabularray` | `tabular` | 渲染使用的 TeX backend | 在 `tabular` 与 `tblr` 间切换 |
 
 ### `pubtab tex2xlsx`
 
@@ -215,7 +215,8 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 |---|---|---|---|---|
 | `TEX_FILE` | 路径（文件或目录） | 必填 | 输入 `.tex` 文件，或包含 `.tex` 的目录 | 主输入 / 批量转换 |
 | `-o, --output` | 路径 | 按扩展名自动推断 | 输出文件路径或输出目录；当 `TEX_FILE` 为目录时，此项必须是目录 | 指定输出名称 |
-| `--theme` | 字符串 | `three_line` | 编译时使用的主题包集合 | 对齐渲染主题 |
+| `--theme` | 字符串 | `three_line` | 预览文档组装时使用的样式主题 | 对齐渲染风格 |
+| `--latex-backend` | `tabular` / `tabularray` | 自动 | 预览文档组装时使用的 TeX backend | 显式指定或自动识别 `tblr` |
 | `--dpi` | 整数 | `300` | PNG 分辨率 | 提升清晰度 |
 | `--format` | `png` / `pdf` | `png` | 输出格式 | 论文资产导出 |
 | `--preamble` | 字符串 | 无 | 额外 LaTeX preamble | 自定义宏 |
@@ -338,10 +339,7 @@ pubtab/
     ├── config.py          # YAML 配置加载
     ├── utils.py           # 转义与颜色工具
     └── themes/
-        ├── three_line/
-        │   ├── config.yaml
-        │   └── template.tex
-        └── three_line_tabularray/
+        └── three_line/
             ├── config.yaml
             └── template.tex
 ```

@@ -17,7 +17,7 @@ def main() -> None:
 @click.option("-o", "--output", required=True, help="Output .tex file path.")
 @click.option("-c", "--config", default=None, help="YAML config file path.")
 @click.option("--sheet", default=None, help="Sheet name or index.")
-@click.option("--theme", default=None, help="Theme name.")
+@click.option("--theme", default=None, help="Style theme name (e.g. three_line).")
 @click.option("--caption", default=None, help="Table caption.")
 @click.option("--label", default=None, help="LaTeX label.")
 @click.option("--header-rows", default=None, type=int, help="Number of header rows.")
@@ -37,7 +37,7 @@ def main() -> None:
     "--latex-backend",
     default=None,
     type=click.Choice(["tabular", "tabularray"]),
-    help="LaTeX backend used for export.",
+    help="TeX backend used for rendering output.",
 )
 def xlsx2tex_cmd(
     input_file: str,
@@ -200,7 +200,7 @@ def xlsx2tex_cmd(
 
 @main.command("themes")
 def themes_cmd() -> None:
-    """List available themes."""
+    """List available style themes."""
     for name in sorted(_list_themes()):
         click.echo(f"  {name}")
 
@@ -244,12 +244,12 @@ def tex2xlsx(input_file: str, output: str) -> None:
 @main.command("preview")
 @click.argument("tex_file")
 @click.option("-o", "--output", default=None, help="Output path.")
-@click.option("--theme", default="three_line", help="Theme name.")
+@click.option("--theme", default="three_line", help="Style theme name used for preview document assembly.")
 @click.option(
     "--latex-backend",
     default=None,
     type=click.Choice(["tabular", "tabularray"]),
-    help="LaTeX backend used for preview document assembly. Auto-detected from tblr content when omitted.",
+    help="TeX backend used for preview document assembly. Auto-detected from tblr content when omitted.",
 )
 @click.option("--dpi", default=300, type=int, help="PNG resolution.")
 @click.option("--format", "fmt", default="png", type=click.Choice(["png", "pdf"]), help="Output format [default: png].")

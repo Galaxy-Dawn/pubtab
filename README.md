@@ -184,7 +184,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `-o, --output` | path | required | Output `.tex` path or output directory; when `INPUT_FILE` is a directory, this must be a directory | Set destination |
 | `-c, --config` | path | none | YAML config file | Team presets |
 | `--sheet` | sheet name / 0-based index | all sheets | Export only one sheet | Single-sheet export |
-| `--theme` | string | `three_line` | Rendering theme | Switch style |
+| `--theme` | string | `three_line` | Style theme used for rendering | Switch visual style |
 | `--caption` | string | none | Table caption | Paper-ready table |
 | `--label` | string | none | LaTeX label | Cross-reference |
 | `--header-rows` | int | auto | Number of header rows | Override detection |
@@ -200,7 +200,7 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 | `--dpi` | int | `300` | Preview DPI (`--preview`) | Sharper PNG |
 | `--header-sep` | string | auto | Custom separator under header | Custom rule line |
 | `--upright-scripts` | flag | `false` | Render sub/superscript as upright `\mathrm{}` | Typographic preference |
-| `--latex-backend` | `tabular` / `tabularray` | `tabular` | Select LaTeX export backend | Switch between `tabular` and `tblr` |
+| `--latex-backend` | `tabular` / `tabularray` | `tabular` | TeX backend used for rendering | Switch between `tabular` and `tblr` |
 
 ### `pubtab tex2xlsx`
 
@@ -215,7 +215,8 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 |---|---|---|---|---|
 | `TEX_FILE` | path (file or directory) | required | Input `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
 | `-o, --output` | path | auto by extension | Output file path or output directory; when `TEX_FILE` is a directory, this must be a directory | Set output name |
-| `--theme` | string | `three_line` | Theme package set for compile | Match render theme |
+| `--theme` | string | `three_line` | Style theme used for preview document assembly | Match render style |
+| `--latex-backend` | `tabular` / `tabularray` | auto | TeX backend used for preview document assembly | Override or auto-detect `tblr` |
 | `--dpi` | int | `300` | PNG resolution | Image quality |
 | `--format` | `png` / `pdf` | `png` | Output format | PDF for paper assets |
 | `--preamble` | string | none | Extra LaTeX preamble commands | Custom macros |
@@ -338,10 +339,7 @@ pubtab/
     ├── config.py          # YAML config loader
     ├── utils.py           # Escape and color helpers
     └── themes/
-        ├── three_line/
-        │   ├── config.yaml
-        │   └── template.tex
-        └── three_line_tabularray/
+        └── three_line/
             ├── config.yaml
             └── template.tex
 ```
