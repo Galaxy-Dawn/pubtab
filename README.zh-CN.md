@@ -8,7 +8,6 @@
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/v/pubtab?style=flat-square&color=blue" alt="PyPI Version"/></a>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/pyversions/pubtab?style=flat-square" alt="Python Versions"/></a>
     <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"/>
-    <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/dm/pubtab?style=flat-square&color=orange" alt="Downloads"/></a>
   </p>
 
   <strong>Language</strong>: <a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a>
@@ -28,8 +27,8 @@
 ## News
 
 - **新增 `tabularray` backend** — `xlsx2tex` 现已支持 `--latex-backend tabularray`，可直接输出 `tblr`。
-- **内置主题配对** — 保持 `three_line` 这一用户主题名不变，同时通过 `latex_backend: tabularray` 自动解析到内置 `three_line_tabularray` 后端主题。
-- **预览说明** — 若你要直接预览已有的 tabularray `.tex` 文件，请使用 `pubtab preview ... --theme three_line_tabularray`，以便自动补齐对应的包提示。
+- **theme/backend 分离** — 对外继续只使用 `three_line` 这一主题名，通过 `latex_backend` 切换渲染后端。
+- **预览说明** — `pubtab preview` 现在会自动识别 `tblr` 输入；若需要，也可显式传 `--latex-backend tabularray` 覆盖。
 
 ## 示例
 
@@ -103,7 +102,7 @@ pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark_tblr.tex \
 
 # 直接预览一个 tabularray tex 文件
 pubtab preview ./out/benchmark_tblr.tex -o ./out/benchmark_tblr.png \
-  --theme three_line_tabularray --dpi 300
+  --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 生成的 `.tex` 顶部会包含注释提示（仅提示，不影响编译）：
@@ -210,7 +209,8 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 |---|---|---|---|---|
 | `TEX_FILE` | 路径（文件或目录） | 必填 | 输入 `.tex` 文件，或包含 `.tex` 的目录 | 主输入 / 批量转换 |
 | `-o, --output` | 路径 | 按扩展名自动推断 | 输出文件路径或输出目录；当 `TEX_FILE` 为目录时，此项必须是目录 | 指定输出名称 |
-| `--theme` | 字符串 | `three_line` | 编译时使用的主题包集合 | 对齐渲染主题 |
+| `--theme` | 字符串 | `three_line` | 对外主题名 | 在不同 backend 间保持统一视觉风格 |
+| `--latex-backend` | `tabular` / `tabularray` | 自动识别 | 显式指定预览 backend | 强制按 `tblr` 或经典 `tabular` 编译 |
 | `--dpi` | 整数 | `300` | PNG 分辨率 | 提升清晰度 |
 | `--format` | `png` / `pdf` | `png` | 输出格式 | 论文资产导出 |
 | `--preamble` | 字符串 | 无 | 额外 LaTeX preamble | 自定义宏 |
@@ -231,7 +231,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
 
 # 预览生成后的 tabularray 表格
-pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 ## 按工作流理解功能（Features by Workflow）
@@ -290,18 +290,29 @@ pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 推荐的 backend 搭配：
 
 - `theme: three_line` + `latex_backend: tabular` -> 经典 `tabular`
-- `theme: three_line` + `latex_backend: tabularray` -> 内置 `three_line_tabularray`
+- `theme: three_line` + `latex_backend: tabularray` -> 通过内置 tabularray 后端输出 `tblr`
 
 ## 主题系统（Theme System）
 
-pubtab 采用 Jinja2 主题系统。内置 `three_line` 面向学术场景的 booktabs 风格，`three_line_tabularray` 则是其配套的 `tabularray` 后端版本。
+pubtab 采用 Jinja2 主题系统。对外内置主题只有 `three_line`，backend 通过 `latex_backend` 单独控制。tabularray 模板仍以内置方式打包，但会自动解析，不再作为单独的用户主题暴露。
 
 自定义主题目录：
 
 ```text
 my_theme/
-├── config.yaml    # packages, spacing, font_size, caption_position
-└── template.tex   # Jinja2 template
+└── config.yaml    # 仅 style 设置：spacing, font_size, caption_position
+```
+
+backend 模板由 pubtab 内部分目录管理：
+
+```text
+src/pubtab/backends/
+├── tabular/
+│   ├── config.yaml
+│   └── template.tex
+└── tabularray/
+    ├── config.yaml
+    └── template.tex
 ```
 
 查看可用主题：
@@ -332,13 +343,16 @@ pubtab/
     ├── _preview.py        # PNG/PDF 预览辅助
     ├── config.py          # YAML 配置加载
     ├── utils.py           # 转义与颜色工具
+    ├── backends/
+    │   ├── tabular/
+    │   │   ├── config.yaml
+    │   │   └── template.tex
+    │   └── tabularray/
+    │       ├── config.yaml
+    │       └── template.tex
     └── themes/
         ├── three_line/
-        │   ├── config.yaml
-        │   └── template.tex
-        └── three_line_tabularray/
-            ├── config.yaml
-            └── template.tex
+        │   └── config.yaml
 ```
 
 </details>

@@ -8,7 +8,6 @@
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/v/pubtab?style=flat-square&color=blue" alt="PyPI Version"/></a>
     <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/pyversions/pubtab?style=flat-square" alt="Python Versions"/></a>
     <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"/>
-    <a href="https://pypi.org/project/pubtab/"><img src="https://img.shields.io/pypi/dm/pubtab?style=flat-square&color=orange" alt="Downloads"/></a>
   </p>
 
   <strong>Language</strong>: <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/README.md">English</a> | <a href="https://github.com/Galaxy-Dawn/pubtab/blob/main/README.zh-CN.md">中文</a>
@@ -28,8 +27,8 @@
 ## News
 
 - **New: `tabularray` backend** — `xlsx2tex` now supports `--latex-backend tabularray` for `tblr` output.
-- **Built-in theme pair** — Use the familiar `three_line` theme with `latex_backend: tabularray`; pubtab resolves it to the built-in `three_line_tabularray` backend theme automatically.
-- **Preview note** — When previewing an existing tabularray `.tex` file directly, use `pubtab preview ... --theme three_line_tabularray` so package hints match the generated backend.
+- **Theme/backend separation** — Keep using the single user-facing theme `three_line`; switch rendering via `latex_backend`.
+- **Preview note** — `pubtab preview` auto-detects `tblr` inputs, and also accepts `--latex-backend tabularray` as an explicit override.
 
 ## Examples
 
@@ -103,7 +102,7 @@ pubtab xlsx2tex ./tables/benchmark.xlsx -o ./out/benchmark_tblr.tex \
 
 # Preview an existing tabularray tex file
 pubtab preview ./out/benchmark_tblr.tex -o ./out/benchmark_tblr.png \
-  --theme three_line_tabularray --dpi 300
+  --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 Generated `.tex` header includes package hints (comments only):
@@ -210,7 +209,8 @@ pubtab.preview("out/tex", output="out/png", format="png", dpi=300)
 |---|---|---|---|---|
 | `TEX_FILE` | path (file or directory) | required | Input `.tex` file, or a directory containing `.tex` files | Main input / batch conversion |
 | `-o, --output` | path | auto by extension | Output file path or output directory; when `TEX_FILE` is a directory, this must be a directory | Set output name |
-| `--theme` | string | `three_line` | Theme package set for compile | Match render theme |
+| `--theme` | string | `three_line` | User-facing theme name | Keep one visual style across backends |
+| `--latex-backend` | `tabular` / `tabularray` | auto-detect | Explicit preview backend override | Force `tblr` or classic `tabular` compilation |
 | `--dpi` | int | `300` | PNG resolution | Image quality |
 | `--format` | `png` / `pdf` | `png` | Output format | PDF for paper assets |
 | `--preamble` | string | none | Extra LaTeX preamble commands | Custom macros |
@@ -231,7 +231,7 @@ pubtab xlsx2tex report.xlsx -o out/report.tex --span-columns --preview --dpi 300
 pubtab xlsx2tex report.xlsx -o out/report_tblr.tex --latex-backend tabularray
 
 # Preview a generated tabularray table
-pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line_tabularray --dpi 300
+pubtab preview out/report_tblr.tex -o out/report_tblr.png --theme three_line --latex-backend tabularray --dpi 300
 ```
 
 ## Features by Workflow
@@ -290,18 +290,29 @@ pubtab xlsx2tex table.xlsx -o output.tex -c config.yaml
 Recommended backend pairing:
 
 - `theme: three_line` + `latex_backend: tabular` -> classic `tabular`
-- `theme: three_line` + `latex_backend: tabularray` -> built-in `three_line_tabularray`
+- `theme: three_line` + `latex_backend: tabularray` -> `tblr` output through the bundled tabularray backend
 
 ## Theme System
 
-pubtab uses a Jinja2-based theme system. The built-in `three_line` theme targets academic booktabs-style tables, and `three_line_tabularray` is the bundled backend variant for `tabularray`.
+pubtab uses a Jinja2-based theme system. The public built-in theme is `three_line`, and backend selection is controlled separately through `latex_backend`. The tabularray template remains bundled internally, but it is resolved automatically instead of being exposed as a separate user-facing theme.
 
 Custom theme layout:
 
 ```text
 my_theme/
-├── config.yaml    # packages, spacing, font_size, caption_position
-└── template.tex   # Jinja2 template
+└── config.yaml    # style-only settings: spacing, font_size, caption_position
+```
+
+Backend templates live separately inside pubtab:
+
+```text
+src/pubtab/backends/
+├── tabular/
+│   ├── config.yaml
+│   └── template.tex
+└── tabularray/
+    ├── config.yaml
+    └── template.tex
 ```
 
 List available themes:
@@ -332,13 +343,16 @@ pubtab/
     ├── _preview.py        # PNG/PDF preview helpers
     ├── config.py          # YAML config loader
     ├── utils.py           # Escape and color helpers
+    ├── backends/
+    │   ├── tabular/
+    │   │   ├── config.yaml
+    │   │   └── template.tex
+    │   └── tabularray/
+    │       ├── config.yaml
+    │       └── template.tex
     └── themes/
         ├── three_line/
-        │   ├── config.yaml
-        │   └── template.tex
-        └── three_line_tabularray/
-            ├── config.yaml
-            └── template.tex
+        │   └── config.yaml
 ```
 
 </details>
